@@ -13,18 +13,26 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
+# Note: Added an extra .parent because base.py is in config/settings/ now.
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
+import environ
+
+# Initialize environ
+env = environ.Env(
+    DEBUG=(bool, False)
+)
+
+#read .env file
+environ.Env.read_env(BASE_DIR / ".env")
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-8kw+582%c1$62_$87h75c5qpr*j3*fz^hmc*h4#a)_9w%0mj#9"
-
+SECRET_KEY = env("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
+DEBUG = env("DEBUG", default=True)
 ALLOWED_HOSTS = []
 
 
@@ -37,6 +45,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "apps.accounts",
 ]
 
 MIDDLEWARE = [
@@ -72,11 +81,15 @@ WSGI_APPLICATION = "config.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
+
+
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
+    "default": env.db("DATABASE_URL")
+}
+# For MySQL 8.0, we want to enforce utf8mb4 in Django too.
+DATABASES["default"]["OPTIONS"] = {
+    "charset": "utf8mb4",
+    "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
 }
 
 
@@ -125,3 +138,10 @@ MAILERS = {
         "BACKEND": "django.core.mail.backends.console.EmailBackend",
     },
 }
+
+# ==============================================================================
+# INSTRUCTOR EXPLANATION:
+# Tell Django to use your custom User model, and set the default auto field.
+# ==============================================================================
+AUTH_USER_MODEL = "accounts.User"
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
