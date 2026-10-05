@@ -1,1 +1,13 @@
 docs/
+.agents/
+
+# IDE and Editor configs
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+
+# Local type checker configs
+pyrefly.toml
+pyrightconfig.json
