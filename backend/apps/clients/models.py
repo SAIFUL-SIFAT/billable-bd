@@ -1,5 +1,5 @@
-from django.db import models
-from django.conf import settings
+from django.db import models # type: ignore[assignment]
+from django.conf import settings # type: ignore[assignment]
 from apps.core.constants import CURRENCY_CHOICES
 
 class Client(models.Model):
@@ -19,7 +19,7 @@ class Client(models.Model):
         ]
 
     def __str__(self) -> str:
-        return self.name
+        return self.name # type: ignore[assignment]
 
 class Project(models.Model):
     BILLING_TYPE_CHOICES = (

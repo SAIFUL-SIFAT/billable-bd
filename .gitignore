@@ -11,3 +11,4 @@ docs/
 # Local type checker configs
 pyrefly.toml
 pyrightconfig.json
+explain.md
