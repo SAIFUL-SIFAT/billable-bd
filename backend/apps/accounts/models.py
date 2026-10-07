@@ -1,5 +1,5 @@
-from django.db import models
-from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.db import models # type: ignore[assignment]
+from django.contrib.auth.models import AbstractUser, BaseUserManager # type: ignore[assignment]
 
 class UserManager(BaseUserManager):
     use_in_migrations = True
@@ -49,4 +49,4 @@ class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
 
     def __str__(self) -> str:
-        return self.user.email
+        return self.user.email # type: ignore[return-value]

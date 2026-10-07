@@ -4,3 +4,6 @@ djangorestframework-simplejwt
 django-cors-headers
 mysqlclient
 django-environ
+django-filter
+
+
