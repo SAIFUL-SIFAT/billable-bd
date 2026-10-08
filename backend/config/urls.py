@@ -1,5 +1,4 @@
-"""
-URL configuration for config project.
+"""URL configuration for config project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
     https://docs.djangoproject.com/en/6.1/topics/http/urls/
@@ -21,8 +20,10 @@ from django.urls import include  # type: ignore[assignment]
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/accounts/", 
-    include("apps.accounts.urls")),
-    path("api/", include("apps.clients.urls"))
+    path("api/accounts/", include("apps.accounts.urls")),
+    path("api/", include("apps.clients.urls")),
+    path("api/billing/", include("apps.billing.urls")),
 ]
+
+
 
