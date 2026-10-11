@@ -20,6 +20,7 @@ from apps.clients.models import Project
 from decimal import Decimal
 from apps.clients.models import Client
 from django.utils import timezone # type: ignore[assignment]
+from apps.core.utils import quantize_money
 
 class TimeEntryQuerySet(models.QuerySet):
     """Custom QuerySet for TimeEntry supporting chainable domain methods."""
@@ -67,6 +68,7 @@ class TimeEntry(models.Model):
     description = models.TextField(blank=True)
     is_billed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    invoice = models.ForeignKey('Invoice', on_delete=models.SET_NULL, null=True, blank=True, related_name='time_entries')
 
     objects = TimeEntryManager()
 
@@ -112,8 +114,11 @@ class TimeEntry(models.Model):
 class InvoiceQuerySet(models.QuerySet):
     """Custom QuerySet for Invoice."""
     def overdue(self) -> "InvoiceQuerySet":
-        """Filter invoices that are SENT and past their due date."""
-        return self.filter(status=Invoice.Status.SENT, due_date__lt=timezone.localdate())
+        """Filter invoices that are SENT or PARTIALLY_PAID and past their due date."""
+        return self.filter(
+            status__in=[Invoice.Status.SENT, Invoice.Status.PARTIALLY_PAID],
+            due_date__lt=timezone.localdate()
+        )
 
 class InvoiceManager(models.Manager):
     """Manager for Invoice."""
@@ -178,6 +183,7 @@ class Invoice(models.Model):
     class Status(models.TextChoices):
         DRAFT = 'DRAFT', 'Draft'
         SENT = 'SENT', 'Sent'
+        PARTIALLY_PAID = 'PARTIALLY_PAID', 'Partially Paid'
         PAID = 'PAID', 'Paid'
         VOID = 'VOID', 'Void'
         OVERDUE = 'OVERDUE', 'Overdue'
@@ -260,19 +266,41 @@ class Payment(models.Model):
         payment_method: Payment channel (BANK_TRANSFER, CASH, BKASH, etc.).
         notes: Optional transaction notes or reference code.
     """
+    class Method(models.TextChoices):
+        BANK_TRANSFER = 'bank_transfer', 'Bank Transfer'
+        WISE = 'wise', 'Wise'
+        PAYONEER = 'payoneer', 'Payoneer'
+        PAYPAL = 'paypal', 'PayPal'
+        BKASH = 'bkash', 'bKash'
+        NAGAD = 'nagad', 'Nagad'
+        OTHER = 'other', 'Other'
+
+    objects = models.Manager()
 
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='payments')
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
-    payment_date = models.DateField()
-    payment_method = models.CharField(max_length=50, default='BANK_TRANSFER')
-    notes = models.TextField(blank=True)
+    amount_applied = models.DecimalField(max_digits=12, decimal_places=2)
+    fee_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    received_bdt = models.DecimalField(max_digits=14, decimal_places=2)
+    method = models.CharField(max_length=50, choices=Method.choices, default=Method.BANK_TRANSFER)
+    paid_on = models.DateField(default=timezone.localdate)
+    reference = models.CharField(max_length=255, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
-
     class Meta:
+        ordering = ['-paid_on', '-created_at']
         constraints = [
-            models.CheckConstraint(condition=models.Q(amount__gt=0), name='payment_amount_positive'),
+            models.CheckConstraint(condition=models.Q(amount_applied__gt=0), name='payment_amount_applied_positive'),
+            models.CheckConstraint(condition=models.Q(fee_amount__gte=0), name='payment_fee_amount_non_negative'),
+            models.CheckConstraint(condition=models.Q(fee_amount__lt=models.F('amount_applied')), name='payment_fee_less_than_applied'),
+            models.CheckConstraint(condition=models.Q(received_bdt__gt=0), name='payment_received_bdt_positive'),
         ]
+    @property
+    def effective_rate(self)->Decimal:
+        """Effective conversion rate: received_bdt / (amount_applied - fee_amount)"""
+        net = self.amount_applied - self.fee_amount #type: ignore
+        if net > 0:
+            return quantize_money(self.received_bdt/net)
+        return Decimal('0.00')
 
     def __str__(self) -> str:
-        return f"Payment {self.amount} for Invoice {self.invoice.number} on {self.payment_date}"
+        return f"Payment {self.amount_applied} for Invoice {self.invoice.number} on {self.paid_on}"
 

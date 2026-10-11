@@ -6,7 +6,11 @@ from decimal import Decimal
 from django.db import transaction # type: ignore[assignment]
 from apps.core.utils import quantize_money, fiscal_year_for
 from apps.billing.models import Invoice, InvoiceSequence
-
+from datetime import timedelta
+from apps.core.exceptions import DomainError, InvoiceStateError, PaymentValidationError
+from django.utils import timezone # type: ignore[assignment]
+from apps.billing.models import TimeEntry, InvoiceItem, Payment
+from apps.clients.models import Client
 
 def compute_invoice_totals(invoice: Invoice) -> Invoice:
     """
@@ -81,3 +85,209 @@ def send_invoice(invoice: Invoice) -> Invoice:
     invoice.save(update_fields=['number', 'status'])
 
     return invoice
+
+@transaction.atomic
+def create_invoice_from_time(
+    owner,
+    client: Client,
+    date_from,
+    date_to,
+    project_ids: list[int] | None = None,
+    tax_rate: Decimal = Decimal('0.00')
+) -> Invoice:
+    """Create a draft invoice grouping unbilled hourly entries by project atomically (US-09).
+
+    Args:
+        owner: Authenticated user.
+        client: Client instance to invoice.
+        date_from: Start of the date filter.
+        date_to: End of the date filter.
+        project_ids: Optional list of project IDs to restrict to.
+        tax_rate: Tax percentage to apply.
+
+    Returns:
+        Invoice: Newly created draft Invoice with populated items.
+
+    Raises:
+        DomainError: If no unbilled entries exist, or projects have mixed currencies.
+    """
+    entries_qs = TimeEntry.objects.select_for_update().filter(
+        owner=owner,
+        project__client=client,
+        project__billing_type='hourly',
+        is_billed=False,
+        date__gte=date_from,
+        date__lte=date_to,
+    )
+    if project_ids:
+        entries_qs = entries_qs.filter(project_id__in=project_ids)
+
+    if not entries_qs.exists():
+        raise DomainError("No unbilled time entries found in the specified range.")
+
+    currencies = set(entries_qs.values_list('project__currency', flat=True))
+    if len(currencies) > 1:
+        raise DomainError("Projects in the range must share a single currency.")
+
+    invoice = Invoice.objects.create(
+        owner=owner,
+        client=client,
+        issue_date=timezone.localdate(),
+        due_date=timezone.localdate() + timedelta(days=14),
+        tax_rate=tax_rate,
+        status=Invoice.Status.DRAFT,
+    )
+
+    project_groups: dict[int, dict] = {}
+    for entry in entries_qs:
+        pid = entry.project_id
+        if pid not in project_groups:
+            project_groups[pid] = {
+                'project': entry.project,
+                'hours': Decimal('0.00'),
+            }
+        project_groups[pid]['hours'] += entry.hours
+
+    for p_data in project_groups.values():
+        proj = p_data['project']
+        hrs = p_data['hours']
+        rate = proj.hourly_rate or Decimal('0.00')
+        subtotal = quantize_money(hrs * rate)
+        InvoiceItem.objects.create( # type: ignore[assignment]
+            invoice=invoice,
+            description=f"{proj.name} - Logged Time ({hrs} hrs @ {rate})",
+            quantity=hrs,
+            unit_price=rate,
+            subtotal=subtotal,
+        )
+
+
+    entries_qs.update(is_billed=True, invoice=invoice)
+
+    return compute_invoice_totals(invoice)
+
+
+@transaction.atomic
+def void_invoice(invoice: Invoice) -> Invoice:
+    """Transition invoice to VOID and release associated time entries (US-12).
+
+    Args:
+        invoice: The invoice to void.
+
+    Returns:
+        Invoice: Voided invoice instance.
+
+    Raises:
+        InvoiceStateError: If invoice is not SENT or already has payments recorded.
+    """
+    invoice = Invoice.objects.select_for_update().get(pk=invoice.pk)
+
+    if invoice.status != Invoice.Status.SENT:
+        raise InvoiceStateError("Only SENT invoices can be voided.")
+    if invoice.payments.exists():
+        raise InvoiceStateError("Cannot void an invoice that has payments recorded.")
+
+    invoice.time_entries.update(is_billed=False, invoice=None)
+
+    invoice.status = Invoice.Status.VOID # type: ignore[assignment]
+    invoice.save(update_fields=['status'])
+    return invoice
+
+
+@transaction.atomic
+def record_payment(invoice: Invoice, payment_data: dict) -> Payment:
+    """Record payment, validate business rules (BR-11, BR-12), and update invoice status.
+
+    Args:
+        invoice: The invoice being paid.
+        payment_data: Dictionary containing amount_applied, fee_amount, received_bdt, etc.
+
+    Returns:
+        Payment: Created Payment instance.
+
+    Raises:
+        PaymentValidationError: If rules (status, overpayment, fees) are violated.
+    """
+    invoice = Invoice.objects.select_for_update().get(pk=invoice.pk)
+
+    if invoice.status not in [Invoice.Status.SENT, Invoice.Status.PARTIALLY_PAID]:# type: ignore[assignment]
+        raise PaymentValidationError("Payments can only be recorded on SENT or PARTIALLY_PAID invoices.")
+
+    amount_applied = Decimal(str(payment_data['amount_applied']))
+    balance_due = invoice.total_amount - invoice.paid_amount # type: ignore[assignment]
+
+    if amount_applied <= 0:
+        raise PaymentValidationError("Payment amount must be greater than 0.")
+    if amount_applied > balance_due:
+        raise PaymentValidationError(f"Payment amount ({amount_applied}) exceeds balance due ({balance_due}).")
+
+    fee_amount = Decimal(str(payment_data.get('fee_amount', '0.00')))
+    if fee_amount < 0 or fee_amount >= amount_applied:
+        raise PaymentValidationError("Fee must be non-negative and strictly less than the applied amount.")
+
+    received_bdt = Decimal(str(payment_data['received_bdt']))
+    if received_bdt <= 0:
+        raise PaymentValidationError("Received BDT must be greater than 0.")
+
+    if invoice.client.default_currency == 'BDT':
+        expected_bdt = quantize_money(amount_applied - fee_amount)
+        if received_bdt != expected_bdt:
+            raise PaymentValidationError(f"For BDT invoices, received BDT must equal applied amount minus fees ({expected_bdt}).")
+
+    payment = Payment.objects.create( # type: ignore[assignment]
+        invoice=invoice,
+        amount_applied=amount_applied,
+        fee_amount=fee_amount,
+        received_bdt=received_bdt,
+        method=payment_data.get('method', 'bank_transfer'),
+        paid_on=payment_data.get('paid_on', timezone.localdate()),
+        reference=payment_data.get('reference', ''),
+    )
+
+    invoice.paid_amount = quantize_money(invoice.paid_amount + amount_applied)# type: ignore[assignment]
+    if invoice.paid_amount == invoice.total_amount:
+        invoice.status = Invoice.Status.PAID # type: ignore[assignment]
+    else:
+        invoice.status = Invoice.Status.PARTIALLY_PAID # type: ignore[assignment]
+    invoice.save(update_fields=['paid_amount', 'status'])
+    try:
+        from apps.notifications.models import Notification
+        Notification.objects.create( # type: ignore[assignment]
+            user=invoice.owner,
+            kind=Notification.Kind.PAYMENT_RECEIVED,
+            message=f"Received payment of {amount_applied} for invoice {invoice.number or invoice.id}.",# type: ignore[assignment]
+            invoice=invoice,
+            dedupe_key=f"payment:{payment.id}",
+        )
+    except Exception:
+        pass  # Keep notification resilient if notifications app isn't ready
+
+    return payment
+
+
+@transaction.atomic
+def delete_payment(payment: Payment) -> Invoice:
+    """Delete a payment and recompute invoice balance and status (US-16).
+
+    Args:
+        payment: The Payment to remove.
+
+    Returns:
+        Invoice: The invoice with recomputed paid_amount and status.
+    """
+    invoice = Invoice.objects.select_for_update().get(pk=payment.invoice_id)# type: ignore[assignment]
+    payment.delete()
+
+    total_paid = sum((p.amount_applied for p in invoice.payments.all()), Decimal('0.00'))
+    invoice.paid_amount = quantize_money(total_paid)
+
+    if invoice.paid_amount == Decimal('0.00'):
+        invoice.status = Invoice.Status.SENT
+    elif invoice.paid_amount < invoice.total_amount:
+        invoice.status = Invoice.Status.PARTIALLY_PAID# type: ignore[assignment]
+    else:
+        invoice.status = Invoice.Status.PAID
+
+    invoice.save(update_fields=['paid_amount', 'status'])
+    return invoice
+

@@ -26,6 +26,9 @@ from apps.core.utils import fiscal_year_for
 from apps.billing.models import Invoice, InvoiceItem, InvoiceSequence
 from apps.billing.services import compute_invoice_totals, send_invoice
 
+from unittest.mock import patch
+from apps.billing.services import create_invoice_from_time
+
 
 from django.utils import timezone#type: ignore
 from datetime import timedelta
@@ -239,3 +242,188 @@ class InvoiceLifecycleTests(APITestCase):
         url = f"/api/billing/invoices/{self.invoice.id}/"
         response = self.client.patch(url, {"notes": "Modified"})
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)#type: ignore
+
+
+
+
+class Day8FromTimeAndPaymentTests(APITestCase):
+    """Test suite for Day 8 from-time bundling, atomicity, and payment lifecycle."""
+
+    def setUp(self) -> None:
+        """Initialize user, client, projects, and unbilled time entries."""
+        from django.contrib.auth import get_user_model  # type: ignore
+        User = get_user_model()
+        self.user = User.objects.create_user(email="day8@example.com", password="password123")
+        self.client_obj = Client.objects.create(owner=self.user, name="Day 8 Client", default_currency="USD")  # type: ignore[assignment]
+        self.project_1 = Project.objects.create(  # type: ignore[assignment]
+            owner=self.user,
+            client=self.client_obj,
+            name="Project 1",
+            billing_type="hourly",
+            hourly_rate=Decimal("100.00"),
+            currency="USD"
+        )
+        self.project_2 = Project.objects.create(  # type: ignore[assignment]
+            owner=self.user,
+            client=self.client_obj,
+            name="Project 2",
+            billing_type="hourly",
+            hourly_rate=Decimal("150.00"),
+            currency="USD"
+        )
+        # Create 3 unbilled entries
+        self.t1 = TimeEntry.objects.create(
+            owner=self.user, project=self.project_1, date=timezone.localdate(), hours=Decimal("2.00"), is_billed=False
+        )
+        self.t2 = TimeEntry.objects.create(
+            owner=self.user, project=self.project_1, date=timezone.localdate(), hours=Decimal("3.00"), is_billed=False
+        )
+        self.t3 = TimeEntry.objects.create(
+            owner=self.user, project=self.project_2, date=timezone.localdate(), hours=Decimal("4.00"), is_billed=False
+        )
+        self.client.force_authenticate(user=self.user)  # type: ignore
+
+    def test_from_time_atomicity_on_failure(self) -> None:
+        """Checkpoint: Force a mid-way failure and verify zero partial records remain."""
+        with patch("apps.billing.services.compute_invoice_totals", side_effect=RuntimeError("Injected crash")):
+            with self.assertRaises(RuntimeError):
+                create_invoice_from_time(  # type: ignore
+                    owner=self.user,  # type: ignore[assignment]
+                    client=self.client_obj,  # type: ignore[assignment]
+                    date_from=timezone.localdate() - timedelta(days=5),  # type: ignore[assignment]
+                    date_to=timezone.localdate() + timedelta(days=5),  # type: ignore[assignment]
+                )
+
+        # Verify nothing was persisted
+        self.assertEqual(Invoice.objects.filter(client=self.client_obj).count(), 0)
+        self.assertEqual(InvoiceItem.objects.count(), 0)  # type: ignore
+        self.assertFalse(TimeEntry.objects.filter(is_billed=True).exists())
+
+    def test_from_time_success_and_grouping(self) -> None:
+        """Verify entries are grouped per project into invoice items and marked billed."""
+        invoice = create_invoice_from_time(  # type: ignore
+            owner=self.user,  # type: ignore[assignment]
+            client=self.client_obj,  # type: ignore[assignment]
+            date_from=timezone.localdate() - timedelta(days=5),  # type: ignore[assignment]
+            date_to=timezone.localdate() + timedelta(days=5),  # type: ignore[assignment]
+        )
+        self.assertEqual(invoice.status, Invoice.Status.DRAFT)
+        self.assertEqual(invoice.items.count(), 2)  # Grouped into 2 projects
+        # Project 1: 5 hrs @ 100 = 500; Project 2: 4 hrs @ 150 = 600 -> Subtotal = 1100
+        self.assertEqual(invoice.subtotal, Decimal("1100.00"))
+        self.assertEqual(invoice.total_amount, Decimal("1100.00"))
+        # All 3 entries locked
+        self.assertEqual(TimeEntry.objects.filter(owner=self.user, is_billed=True).count(), 3)
+
+    def test_locked_time_entry_us07(self) -> None:
+        """Verify editing or deleting billed time entries returns 409 Conflict."""
+        self.t1.is_billed = True
+        self.t1.save()
+
+        # PATCH attempt
+        response = self.client.patch(f"/api/billing/time-entries/{self.t1.id}/", {"hours": 5.0})
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)  # type: ignore
+
+        # DELETE attempt
+        response = self.client.delete(f"/api/billing/time-entries/{self.t1.id}/")
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)  # type: ignore
+
+    def test_release_entries_on_delete_draft_and_void(self) -> None:
+        """Verify time entries are released when draft is deleted or invoice is voided."""
+        inv = create_invoice_from_time(  # type: ignore
+            owner=self.user,  # type: ignore
+            client=self.client_obj,  # type: ignore
+            date_from=timezone.localdate() - timedelta(days=5),  # type: ignore
+            date_to=timezone.localdate() + timedelta(days=5),  # type: ignore
+        )  # type: ignore
+        self.assertEqual(TimeEntry.objects.filter(is_billed=True).count(), 3)
+
+        # Delete draft
+        res = self.client.delete(f"/api/billing/invoices/{inv.id}/")
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)  # type: ignore
+        self.assertEqual(TimeEntry.objects.filter(is_billed=True).count(), 0)
+
+    def test_two_partial_payments_and_delete_recompute(self) -> None:
+        """Checkpoint: Record 2 partial payments, delete one, and verify balance and status transitions."""
+        inv = Invoice.objects.create(
+            owner=self.user,
+            client=self.client_obj,
+            issue_date=timezone.localdate(),
+            due_date=timezone.localdate() + timedelta(days=10),
+            status=Invoice.Status.SENT,
+            total_amount=Decimal("100.00"),
+            subtotal=Decimal("100.00")
+        )
+        url = f"/api/billing/invoices/{inv.id}/payments/"
+
+        # 1. Partial payment 1: 40 applied, fee 2, 4500 BDT
+        p1_payload = {
+            "amount_applied": "40.00",
+            "fee_amount": "2.00",
+            "received_bdt": "4500.00",
+            "method": "wise"
+        }
+        res1 = self.client.post(url, p1_payload, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)  # type: ignore
+        # Effective rate = 4500 / (40 - 2) = 4500 / 38 = 118.42
+        self.assertEqual(Decimal(str(res1.data["effective_rate"])), Decimal("118.42"))  # type: ignore
+
+        inv.refresh_from_db()
+        self.assertEqual(inv.status, Invoice.Status.PARTIALLY_PAID)  # type: ignore
+        self.assertEqual(inv.paid_amount, Decimal("40.00"))
+
+        # 2. Partial payment 2: 60 applied, fee 0, 7200 BDT -> fully paid
+        p2_payload = {
+            "amount_applied": "60.00",
+            "fee_amount": "0.00",
+            "received_bdt": "7200.00",
+            "method": "bank_transfer"
+        }
+        res2 = self.client.post(url, p2_payload, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_201_CREATED)  # type: ignore
+
+        inv.refresh_from_db()
+        self.assertEqual(inv.status, Invoice.Status.PAID)
+        self.assertEqual(inv.paid_amount, Decimal("100.00"))
+
+        # 3. Delete payment 2 -> reverts to PARTIALLY_PAID
+        p2_id = res2.data["id"]  # type: ignore
+        del_res = self.client.delete(f"/api/billing/payments/{p2_id}/")
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)  # type: ignore
+
+        inv.refresh_from_db()
+        self.assertEqual(inv.status, Invoice.Status.PARTIALLY_PAID)  # type: ignore
+        self.assertEqual(inv.paid_amount, Decimal("40.00"))
+
+        # 4. Delete payment 1 -> reverts to SENT
+        p1_id = res1.data["id"]  # type: ignore
+        self.client.delete(f"/api/billing/payments/{p1_id}/")
+
+        inv.refresh_from_db()
+        self.assertEqual(inv.status, Invoice.Status.SENT)
+        self.assertEqual(inv.paid_amount, Decimal("0.00"))
+
+    def test_payment_validations_br11_br12(self) -> None:
+        """Verify BR-11 (overpayment, non-sent invoice) and BR-12 (fee constraints)."""
+        inv = Invoice.objects.create(
+            owner=self.user,
+            client=self.client_obj,
+            issue_date=timezone.localdate(),
+            due_date=timezone.localdate() + timedelta(days=10),
+            status=Invoice.Status.DRAFT,  # DRAFT cannot accept payment
+            total_amount=Decimal("100.00")
+        )
+        url = f"/api/billing/invoices/{inv.id}/payments/"
+        res = self.client.post(url, {"amount_applied": "50.00", "fee_amount": "0.00", "received_bdt": "6000.00"})
+        self.assertEqual(res.status_code, status.HTTP_409_CONFLICT)  # type: ignore
+
+        inv.status = Invoice.Status.SENT
+        inv.save()
+
+        # Overpayment (> balance 100)
+        res_over = self.client.post(url, {"amount_applied": "150.00", "fee_amount": "0.00", "received_bdt": "18000.00"})
+        self.assertEqual(res_over.status_code, status.HTTP_409_CONFLICT)  # type: ignore
+
+        # Fee >= applied amount
+        res_fee = self.client.post(url, {"amount_applied": "50.00", "fee_amount": "50.00", "received_bdt": "6000.00"})
+        self.assertEqual(res_fee.status_code, status.HTTP_409_CONFLICT)  # type: ignore

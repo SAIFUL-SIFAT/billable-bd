@@ -34,3 +34,9 @@ def custom_exception_handler(exc: Exception, context: dict) -> Response | None:
         )
         
     return response
+class PaymentValidationError(DomainError):
+    """Raised when a payment violates business rules (e.g. overpayment, non-sent invoice, negative amounts)."""
+    pass
+class TimeEntryLockedError(DomainError):
+    """Raised when attempting to edit or delete a billed/locked time entry (US-07)."""
+    pass

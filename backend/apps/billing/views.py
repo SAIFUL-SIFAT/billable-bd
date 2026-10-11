@@ -11,16 +11,30 @@ This executes an SQL JOIN between TimeEntry, Project, and Client tables, guarant
 list endpoints execute in a constant number of queries regardless of database row count (N+1 protection).
 """
 
-from django.db.models import Sum, Q, F, DecimalField, ExpressionWrapper # type: ignore[assignment]
-from django_filters import rest_framework as filters # type: ignore[assignment]
-from rest_framework import viewsets, permissions
+from decimal import Decimal
+from typing import Any
+from django.db.models import Sum, Q, F, DecimalField, ExpressionWrapper  # type: ignore[assignment]
+from django_filters import rest_framework as filters  # type: ignore[assignment]
+from rest_framework import viewsets, permissions, mixins, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from apps.billing.models import TimeEntry
-from apps.billing.serializers import TimeEntrySerializer
-from apps.billing.models import Invoice
-from apps.billing.serializers import InvoiceSerializer
-from apps.core.exceptions import InvoiceStateError
+from django.shortcuts import get_object_or_404  # type: ignore
+
+from apps.billing.models import TimeEntry, Invoice, Payment
+from apps.billing.serializers import (
+    TimeEntrySerializer,
+    InvoiceSerializer,
+    PaymentSerializer,
+    InvoiceFromTimeSerializer,
+)
+from apps.core.exceptions import InvoiceStateError, TimeEntryLockedError
+from apps.billing.services import (
+    create_invoice_from_time,
+    void_invoice,
+    record_payment,
+    delete_payment,
+)
+from apps.clients.models import Client
 
 
 class TimeEntryFilter(filters.FilterSet):
@@ -68,6 +82,18 @@ class TimeEntryViewSet(viewsets.ModelViewSet):
         """
         serializer.save(owner=self.request.user)
 
+    def perform_update(self, serializer: TimeEntrySerializer) -> None:
+        """Enforce US-07: Billed time entries cannot be updated."""
+        if serializer.instance.is_billed:  # type: ignore
+            raise TimeEntryLockedError("Billed time entries are locked and cannot be edited.")
+        serializer.save()
+
+    def perform_destroy(self, instance: TimeEntry) -> None:
+        """Enforce US-07: Billed time entries cannot be deleted."""
+        if instance.is_billed:
+            raise TimeEntryLockedError("Billed time entries are locked and cannot be deleted.")
+        instance.delete()
+
     @action(detail=False, methods=['get'])
     def totals(self, request) -> Response:
         """
@@ -94,11 +120,13 @@ class TimeEntryViewSet(viewsets.ModelViewSet):
             'unbilled_amount': stats['unbilled_amount'] or 0,
         })
 
+
 class InvoiceViewSet(viewsets.ModelViewSet):
     """ViewSet for managing Invoices and their lifecycle."""
+
     serializer_class = InvoiceSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
+
     def get_queryset(self):
         """Filter invoices to owner and prefetch related items."""
         return Invoice.objects.filter(owner=self.request.user).prefetch_related('items')
@@ -108,14 +136,15 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer: InvoiceSerializer) -> None:
         """Block edits to non-draft invoices."""
-        if serializer.instance.status != Invoice.Status.DRAFT: #type: ignore
+        if serializer.instance.status != Invoice.Status.DRAFT:  # type: ignore
             raise InvoiceStateError("Only DRAFT invoices can be edited.")
         serializer.save()
 
     def perform_destroy(self, instance: Invoice) -> None:
-        """Block deletion of non-draft invoices."""
+        """Block deletion of non-draft invoices and release time entries on draft deletion."""
         if instance.status != Invoice.Status.DRAFT:
             raise InvoiceStateError("Only DRAFT invoices can be deleted.")
+        instance.time_entries.update(is_billed=False, invoice=None)
         instance.delete()
 
     @action(detail=True, methods=['post'])
@@ -139,3 +168,46 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         invoice.status = Invoice.Status.VOID
         invoice.save()
         return Response({"status": "void"})
+
+    @action(detail=False, methods=['post'], url_path='from-time')
+    def from_time(self, request) -> Response:
+        """Create a draft invoice from unbilled time entries (US-09)."""
+        serializer = InvoiceFromTimeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        client = get_object_or_404(Client, id=data['client'], owner=request.user)
+        invoice = create_invoice_from_time(  # type: ignore[operator,call-arg]
+            owner=request.user,  #type: ignore
+            client=client,  #type: ignore
+            date_from=data['date_from'],  #type: ignore
+            date_to=data['date_to'],  #type: ignore
+            project_ids=data.get('project_ids'),  #type: ignore
+            tax_rate=data.get('tax_rate', Decimal('0.00'))  #type: ignore
+        )
+        return Response(InvoiceSerializer(invoice).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get', 'post'], url_path='payments')
+    def payments(self, request, pk=None) -> Response:
+        """List or record payments for this invoice (US-15, BR-11, BR-12)."""
+        invoice = self.get_object()
+        if request.method == 'GET':
+            serializer = PaymentSerializer(invoice.payments.all(), many=True)
+            return Response(serializer.data)
+        serializer = PaymentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payment = record_payment(invoice, serializer.validated_data)  # type: ignore[operator,call-arg]
+        return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
+
+
+class PaymentViewSet(mixins.DestroyModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """ViewSet for managing individual payments (US-16)."""
+
+    serializer_class = PaymentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Payment.objects.filter(invoice__owner=self.request.user)  # type: ignore[attr-defined]
+
+    def perform_destroy(self, instance: Any) -> None:
+        """Delete payment and recompute invoice balance and status."""
+        delete_payment(instance)

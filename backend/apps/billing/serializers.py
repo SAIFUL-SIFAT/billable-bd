@@ -9,11 +9,15 @@ validate_project raises a ValidationError ("Project does not exist or does not b
 This prevents malicious or accidental cross-tenant data leakage across project boundaries.
 """
 
+from decimal import Decimal
+
 from rest_framework import serializers
 from apps.billing.models import TimeEntry
 from apps.clients.models import Project
 from django.db import transaction #type: ignore
 from apps.billing.models import Invoice, InvoiceItem #type: ignore
+from apps.billing.models import Payment
+
 
 
 class TimeEntrySerializer(serializers.ModelSerializer):
@@ -136,3 +140,41 @@ class InvoiceSerializer(serializers.ModelSerializer):
                 for item_data in items_data:
                     InvoiceItem.objects.create(invoice=instance, **item_data)#type: ignore
             return instance
+
+
+class PaymentSerializer(serializers.ModelSerializer):
+    """Serializer for recording and inspecting invoice payments."""
+    effective_rate = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = Payment
+        fields = [
+            'id', 'invoice', 'amount_applied', 'fee_amount', 'received_bdt',
+            'method', 'paid_on', 'reference', 'effective_rate', 'created_at'
+        ]
+        read_only_fields = ['id', 'invoice', 'effective_rate', 'created_at']
+
+
+class InvoiceFromTimeSerializer(serializers.Serializer):
+    """Serializer validating parameters for creating an invoice from unbilled time (US-09)."""
+    client = serializers.IntegerField(required=True)
+    date_from = serializers.DateField(required=True)
+    date_to = serializers.DateField(required=True)
+    project_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True
+    )
+    tax_rate = serializers.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        required=False,
+        default=Decimal('0.00')#type: ignore
+    )
+
+    def validate(self, data: dict) -> dict:#type: ignore
+        """Ensure date_from is before or equal to date_to."""
+        if data['date_from'] > data['date_to']:
+            raise serializers.ValidationError({"date_to": "date_to must be on or after date_from."})
+        return data
+
