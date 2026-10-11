@@ -4,6 +4,7 @@ from rest_framework import viewsets, permissions, filters # type: ignore[assignm
 from django_filters.rest_framework import DjangoFilterBackend # type: ignore[assignment]
 from apps.clients.models import Client, Project
 from apps.clients.serializers import ClientSerializer, ProjectSerializer
+from apps.core.exceptions import ClientDeleteError
 
 class ClientViewSet(viewsets.ModelViewSet):
     """ViewSet for performing CRUD operations on Client records.
@@ -39,6 +40,13 @@ class ClientViewSet(viewsets.ModelViewSet):
         """
         serializer.save(owner=self.request.user)
 
+    def perform_destroy(self, instance: Client) -> None:
+        """Block client deletion if invoices exist."""
+        if instance.invoices.exists():#type: ignore
+            raise ClientDeleteError("Cannot delete a client that has invoices.")
+        instance.delete()
+
+
 class ProjectViewSet(viewsets.ModelViewSet):
     """ViewSet for performing CRUD operations on Project records.
 
@@ -72,3 +80,5 @@ class ProjectViewSet(viewsets.ModelViewSet):
             serializer (ProjectSerializer): The validated project serializer.
         """
         serializer.save(owner=self.request.user)
+
+

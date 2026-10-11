@@ -27,6 +27,12 @@ from apps.billing.models import Invoice, InvoiceItem, InvoiceSequence
 from apps.billing.services import compute_invoice_totals, send_invoice
 
 
+from django.utils import timezone#type: ignore
+from datetime import timedelta
+from apps.billing.models import Invoice
+from rest_framework import status
+
+
 
 User = get_user_model()
 
@@ -189,3 +195,47 @@ class Day6InvoiceCheckpointTests(APITestCase):
         seq = InvoiceSequence.objects.get(owner=self.user, fiscal_year="2026-27")# type: ignore[assignment]
         self.assertEqual(seq.last_number, 2)
 
+
+class InvoiceLifecycleTests(APITestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model#type: ignore
+        User = get_user_model()
+        self.user = User.objects.create_user(email="lifecycle@example.com", password="password123")
+        self.client_obj = Client.objects.create(owner=self.user, name="Lifecycle Client")#type: ignore
+        self.invoice = Invoice.objects.create(
+            owner=self.user,
+            client=self.client_obj,
+            issue_date=timezone.localdate(),
+            due_date=timezone.localdate() + timedelta(days=1),
+            status=Invoice.Status.DRAFT
+        )
+        self.client.force_authenticate(user=self.user)#type: ignore
+
+    def test_overdue_logic(self):
+        """An invoice due today is not overdue. Due yesterday is."""
+        self.invoice.status = Invoice.Status.SENT
+        self.invoice.due_date = timezone.localdate()
+        self.invoice.save()
+        self.assertFalse(self.invoice.is_overdue)
+        
+        self.invoice.due_date = timezone.localdate() - timedelta(days=1)
+        self.invoice.save()
+        self.assertTrue(self.invoice.is_overdue)
+        self.assertTrue(Invoice.objects.overdue().exists())
+
+    def test_legal_transition_draft_to_sent(self):
+        """Sending a draft invoice is allowed."""
+        url = f"/api/billing/invoices/{self.invoice.id}/send/"
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)#type: ignore
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, Invoice.Status.SENT)
+
+    def test_illegal_transition_edit_sent_invoice(self):
+        """Editing a sent invoice returns 409."""
+        self.invoice.status = Invoice.Status.SENT
+        self.invoice.save()
+        
+        url = f"/api/billing/invoices/{self.invoice.id}/"
+        response = self.client.patch(url, {"notes": "Modified"})
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)#type: ignore

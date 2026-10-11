@@ -14,10 +14,14 @@ Automatically generates RESTful routes for:
 from django.urls import path, include # type: ignore[assignment]
 from rest_framework.routers import DefaultRouter
 from apps.billing.views import TimeEntryViewSet # type: ignore[assignment]
+from apps.billing.views import InvoiceViewSet
 
 router = DefaultRouter()
 router.register(r'time-entries', TimeEntryViewSet, basename='time-entry')
+router.register(r'invoices', InvoiceViewSet, basename='invoice')
 
 urlpatterns = [
     path('', include(router.urls)),
 ]
+
+

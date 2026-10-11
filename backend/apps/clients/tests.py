@@ -62,6 +62,21 @@ class ClientAPITestCase(APITestCase):
         self.assertTrue(Client.objects.filter(id=self.client_a.id).exists())# type: ignore[assignment]
 
 
+    def test_cannot_delete_client_with_invoices(self) -> None:
+        """Verify client deletion returns 409 when client has associated invoices."""
+        from datetime import date
+        from apps.billing.models import Invoice
+        Invoice.objects.create(
+            owner=self.user_a,
+            client=self.client_a,
+            issue_date=date(2026, 10, 1),
+            due_date=date(2026, 10, 15),
+        )
+        self.client.force_authenticate(user=self.user_a)#type: ignore
+        response = self.client.delete(f"/api/clients/{self.client_a.id}/")
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)#type: ignore
+
+
 class ProjectAPITestCase(APITestCase):
     """Integration tests for Project API endpoints enforcing owner isolation and rate validation.
 

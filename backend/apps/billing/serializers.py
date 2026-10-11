@@ -12,6 +12,8 @@ This prevents malicious or accidental cross-tenant data leakage across project b
 from rest_framework import serializers
 from apps.billing.models import TimeEntry
 from apps.clients.models import Project
+from django.db import transaction #type: ignore
+from apps.billing.models import Invoice, InvoiceItem #type: ignore
 
 
 class TimeEntrySerializer(serializers.ModelSerializer):
@@ -74,3 +76,63 @@ class TimeEntrySerializer(serializers.ModelSerializer):
         if value <= 0:
             raise serializers.ValidationError("Hours must be greater than 0.")
         return value
+
+class InvoiceItemSerializer(serializers.ModelSerializer):
+    """Serializer for Invoice line items."""
+    class Meta:
+        model = InvoiceItem
+        fields = ['id', 'time_entry', 'description', 'quantity', 'unit_price', 'subtotal']
+        read_only_fields = ['id', 'subtotal']
+
+class InvoiceSerializer(serializers.ModelSerializer):
+    """Serializer for Invoice, handling nested items."""
+    items = InvoiceItemSerializer(many=True, required=False)
+    client_name = serializers.CharField(source='client.name', read_only=True)
+
+    class Meta:
+        model = Invoice
+        fields = [
+            'id', 'client', 'client_name', 'number', 'status', 'issue_date', 'due_date',
+            'subtotal', 'tax_rate', 'tax_amount', 'total_amount', 'paid_amount', 'notes', 'items'
+        ]
+        read_only_fields = ['id', 'number', 'status', 'subtotal', 'tax_amount', 'total_amount', 'paid_amount']
+
+    def create(self, validated_data: dict) -> Invoice:
+        """Create invoice and nested items atomically.
+        
+        Args:
+            validated_data: Validated payload data including nested items.
+            
+        Returns:
+            Invoice: Created invoice instance.
+        """
+        items_data = validated_data.pop('items', [])
+        with transaction.atomic():#type: ignore
+            invoice = Invoice.objects.create(**validated_data)
+            for item_data in items_data:
+                InvoiceItem.objects.create(invoice=invoice, **item_data)#type: ignore
+            return invoice
+
+    def update(self, instance: Invoice, validated_data: dict) -> Invoice:
+        """Update invoice and replace nested items atomically.
+        
+        Args:
+            instance: The invoice to update.
+            validated_data: Validated payload data.
+            
+        Returns:
+            Invoice: Updated invoice instance.
+        """
+        items_data = validated_data.pop('items', None)
+        with transaction.atomic():#type: ignore
+            # Update invoice fields
+            for attr, value in validated_data.items():
+                setattr(instance, attr, value)
+            instance.save()
+            
+            # Replace items completely if items_data is provided
+            if items_data is not None:
+                instance.items.all().delete()#type: ignore
+                for item_data in items_data:
+                    InvoiceItem.objects.create(invoice=instance, **item_data)#type: ignore
+            return instance

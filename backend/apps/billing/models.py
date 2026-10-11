@@ -19,6 +19,7 @@ from django.core.exceptions import ValidationError  # type: ignore[assignment]
 from apps.clients.models import Project
 from decimal import Decimal
 from apps.clients.models import Client
+from django.utils import timezone # type: ignore[assignment]
 
 class TimeEntryQuerySet(models.QuerySet):
     """Custom QuerySet for TimeEntry supporting chainable domain methods."""
@@ -108,6 +109,19 @@ class TimeEntry(models.Model):
         """Return string representation of logged time entry."""
         return f"{self.hours} hrs on {self.project.name} ({self.date})"
 
+class InvoiceQuerySet(models.QuerySet):
+    """Custom QuerySet for Invoice."""
+    def overdue(self) -> "InvoiceQuerySet":
+        """Filter invoices that are SENT and past their due date."""
+        return self.filter(status=Invoice.Status.SENT, due_date__lt=timezone.localdate())
+
+class InvoiceManager(models.Manager):
+    """Manager for Invoice."""
+    def get_queryset(self) -> InvoiceQuerySet:
+        return InvoiceQuerySet(self.model, using=self._db)
+    def overdue(self) -> InvoiceQuerySet:
+        return self.get_queryset().overdue()
+
 class InvoiceSequence(models.Model):
     """
     Tracks the current auto-incrementing invoice number for an owner within a specific fiscal year.
@@ -168,6 +182,8 @@ class Invoice(models.Model):
         VOID = 'VOID', 'Void'
         OVERDUE = 'OVERDUE', 'Overdue'
 
+    objects = InvoiceManager()
+
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     client = models.ForeignKey(Client, on_delete=models.PROTECT, related_name='invoices')
     number = models.CharField(max_length=50, blank=True, default='')
@@ -195,6 +211,11 @@ class Invoice(models.Model):
 
     def __str__(self) -> str:
         return f"Invoice {self.number or '(Draft)'} - {self.client.name}"
+
+    @property
+    def is_overdue(self) -> bool:
+        """Check if this specific invoice is past due."""
+        return self.status == self.Status.SENT and self.due_date < timezone.localdate()
 
 
 class InvoiceItem(models.Model):
@@ -254,6 +275,4 @@ class Payment(models.Model):
 
     def __str__(self) -> str:
         return f"Payment {self.amount} for Invoice {self.invoice.number} on {self.payment_date}"
-
-
 

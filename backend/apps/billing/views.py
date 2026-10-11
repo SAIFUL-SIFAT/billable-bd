@@ -18,6 +18,10 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from apps.billing.models import TimeEntry
 from apps.billing.serializers import TimeEntrySerializer
+from apps.billing.models import Invoice
+from apps.billing.serializers import InvoiceSerializer
+from apps.core.exceptions import InvoiceStateError
+
 
 class TimeEntryFilter(filters.FilterSet):
     """FilterSet for filtering time entries by project, date range, and billed status."""
@@ -90,3 +94,48 @@ class TimeEntryViewSet(viewsets.ModelViewSet):
             'unbilled_amount': stats['unbilled_amount'] or 0,
         })
 
+class InvoiceViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing Invoices and their lifecycle."""
+    serializer_class = InvoiceSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        """Filter invoices to owner and prefetch related items."""
+        return Invoice.objects.filter(owner=self.request.user).prefetch_related('items')
+
+    def perform_create(self, serializer: InvoiceSerializer) -> None:
+        serializer.save(owner=self.request.user)
+
+    def perform_update(self, serializer: InvoiceSerializer) -> None:
+        """Block edits to non-draft invoices."""
+        if serializer.instance.status != Invoice.Status.DRAFT: #type: ignore
+            raise InvoiceStateError("Only DRAFT invoices can be edited.")
+        serializer.save()
+
+    def perform_destroy(self, instance: Invoice) -> None:
+        """Block deletion of non-draft invoices."""
+        if instance.status != Invoice.Status.DRAFT:
+            raise InvoiceStateError("Only DRAFT invoices can be deleted.")
+        instance.delete()
+
+    @action(detail=True, methods=['post'])
+    def send(self, request, pk=None) -> Response:
+        """Transition invoice from DRAFT to SENT."""
+        invoice = self.get_object()
+        if invoice.status != Invoice.Status.DRAFT:
+            raise InvoiceStateError("Only DRAFT invoices can be sent.")
+        invoice.status = Invoice.Status.SENT
+        invoice.save()
+        return Response({"status": "sent"})
+
+    @action(detail=True, methods=['post'])
+    def void(self, request, pk=None) -> Response:
+        """Transition invoice to VOID."""
+        invoice = self.get_object()
+        if invoice.status == Invoice.Status.VOID:
+            raise InvoiceStateError("Invoice is already void.")
+        if invoice.status == Invoice.Status.PAID:
+            raise InvoiceStateError("Paid invoices cannot be voided.")
+        invoice.status = Invoice.Status.VOID
+        invoice.save()
+        return Response({"status": "void"})
