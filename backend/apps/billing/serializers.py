@@ -102,34 +102,37 @@ class InvoiceSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'number', 'status', 'subtotal', 'tax_amount', 'total_amount', 'paid_amount']
 
     def create(self, validated_data: dict) -> Invoice:
-        """Create invoice and nested items atomically.
+        """Create invoice and nested items atomically, then calculate totals.
         
         Args:
             validated_data: Validated payload data including nested items.
             
         Returns:
-            Invoice: Created invoice instance.
+            Invoice: Created invoice instance with computed financial totals.
         """
         items_data = validated_data.pop('items', [])
-        with transaction.atomic():#type: ignore
+        with transaction.atomic(): #type: ignore
             invoice = Invoice.objects.create(**validated_data)
             for item_data in items_data:
                 InvoiceItem.objects.create(invoice=invoice, **item_data)#type: ignore
+            # Compute and persist subtotal, tax_amount, and total_amount across all items
+            from apps.billing.services import compute_invoice_totals
+            compute_invoice_totals(invoice)
             return invoice
 
     def update(self, instance: Invoice, validated_data: dict) -> Invoice:
-        """Update invoice and replace nested items atomically.
+        """Update invoice and replace nested items atomically, then recalculate totals.
         
         Args:
             instance: The invoice to update.
             validated_data: Validated payload data.
             
         Returns:
-            Invoice: Updated invoice instance.
+            Invoice: Updated invoice instance with refreshed financial totals.
         """
         items_data = validated_data.pop('items', None)
         with transaction.atomic():#type: ignore
-            # Update invoice fields
+            # Update invoice scalar fields
             for attr, value in validated_data.items():
                 setattr(instance, attr, value)
             instance.save()
@@ -139,7 +142,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
                 instance.items.all().delete()#type: ignore
                 for item_data in items_data:
                     InvoiceItem.objects.create(invoice=instance, **item_data)#type: ignore
+            # Recalculate totals based on updated items and tax_rate
+            from apps.billing.services import compute_invoice_totals
+            compute_invoice_totals(instance)
             return instance
+
+
 
 
 class PaymentSerializer(serializers.ModelSerializer):

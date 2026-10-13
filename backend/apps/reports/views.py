@@ -11,7 +11,26 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.reports.services import get_dashboard_data, get_fiscal_year_report
+from apps.reports.services import get_dashboard_data, get_exchange_rates, get_fiscal_year_report
+
+
+# Goal: Exchange rate API endpoint returning cached Frankfurter and BDT conversion rates.
+# Why it works: Cached for 1 hour so frontend rate converters and estimation tools have rapid responses.
+class RatesView(APIView):
+    """
+    Public exchange rate conversion endpoint using cached Frankfurter rates.
+
+    Query Parameters:
+    - base: Base currency symbol (default: 'USD').
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request: Any) -> Response:
+        base = request.query_params.get("base", "USD")
+        rates_data = get_exchange_rates(base=base)
+        return Response(rates_data, status=status.HTTP_200_OK)
+
 
 
 class DashboardView(APIView):

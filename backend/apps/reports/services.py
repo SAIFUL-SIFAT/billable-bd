@@ -27,9 +27,70 @@ from django.utils import timezone#type: ignore
 from apps.billing.models import Invoice, Payment
 from apps.core.utils import fiscal_year_for, quantize_money
 
-User = get_user_model()
+import json
+import logging
+import urllib.request
 
+logger = logging.getLogger(__name__)
+
+User = get_user_model()
 FY_REGEX = re.compile(r"^(\d{4})-(\d{2})$")
+
+# Goal: Fetch and cache exchange rates using Frankfurter API with BDT estimation fallback.
+# Why it works: Frankfurter provides free, open ECB reference rates without API keys.
+# Since Frankfurter focuses on major currencies, we derive BDT cross rates with a cached fallback.
+def get_exchange_rates(base: str = "USD") -> Dict[str, Any]:
+    """
+    Fetch cached currency conversion rates.
+    Cached for 1 hour to optimize throughput and avoid external rate-limiting.
+    """
+    normalized_base = base.upper().strip()
+    cache_key = f"exchange_rates:{normalized_base}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    rates: Dict[str, float] = {}
+    try:
+        # Fetch Frankfurter rates
+        url = f"https://api.frankfurter.dev/v1/latest?base={normalized_base}"
+        req = urllib.request.Request(url, headers={"User-Agent": "BillableBD/1.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            rates = data.get("rates", {})
+            rates[normalized_base] = 1.0
+    except Exception as exc:
+        logger.warning(f"Frankfurter API error: {exc}")
+        # Default fallback standard baseline rates against USD
+        if normalized_base == "USD":
+            rates = {"EUR": 0.92, "GBP": 0.78, "USD": 1.0}
+
+    # BDT Rate enrichment (approximate market rate or external lookup)
+    if "BDT" not in rates:
+        try:
+            # Secondary check for BDT
+            bdt_req = urllib.request.Request("https://open.er-api.com/v6/latest/USD", headers={"User-Agent": "BillableBD/1.0"})
+            with urllib.request.urlopen(bdt_req, timeout=5) as resp:
+                er_data = json.loads(resp.read().decode("utf-8"))
+                usd_to_bdt = float(er_data["rates"]["BDT"])
+                if normalized_base == "USD":
+                    rates["BDT"] = round(usd_to_bdt, 2)
+                elif "USD" in rates and rates["USD"] > 0:
+                    rates["BDT"] = round(usd_to_bdt * (1.0 / rates["USD"]), 2)
+                else:
+                    rates["BDT"] = 122.50
+        except Exception:
+            # Standard safe fallback rate if external is unreachable
+            rates["BDT"] = 122.50 if normalized_base == "USD" else (133.00 if normalized_base == "EUR" else 122.50)
+
+    result = {
+        "base": normalized_base,
+        "rates": rates,
+        "source": "https://frankfurter.dev/",
+        "playground_url": "https://frankfurter.dev/playground/",
+    }
+    cache.set(cache_key, result, timeout=3600)  # Cache for 1 hour
+    return result
 
 
 def get_dashboard_data(user: Any) -> Dict[str, Any]:
@@ -214,13 +275,42 @@ def get_dashboard_data(user: Any) -> Dict[str, Any]:
         for row in top_clients_qs
     ]
 
+    # Calculate live estimated total outstanding in BDT using cached rates
+    rates_data = get_exchange_rates("USD")
+    usd_rates = rates_data.get("rates", {})
+    usd_to_bdt = Decimal(str(usd_rates.get("BDT", 122.50)))
+
+    estimated_bdt_total = Decimal("0.00")
+    for item in outstanding_by_currency:
+        curr = item["currency"].upper()
+        amt = Decimal(item["amount"])
+        if curr == "BDT":
+            estimated_bdt_total += amt
+        elif curr == "USD":
+            estimated_bdt_total += amt * usd_to_bdt
+        else:
+            # Convert currency -> USD -> BDT
+            rate_to_usd = usd_rates.get(curr)
+            if rate_to_usd and rate_to_usd > 0:
+                amt_in_usd = amt / Decimal(str(rate_to_usd))
+                estimated_bdt_total += amt_in_usd * usd_to_bdt
+            else:
+                # Fallback if unknown
+                estimated_bdt_total += amt * usd_to_bdt
+
     payload: Dict[str, Any] = {
         "income_bdt_this_month": income_bdt_this_month,
         "monthly_income_bdt": monthly_income_bdt,
         "outstanding_by_currency": outstanding_by_currency,
+        "estimated_outstanding_bdt": str(quantize_money(estimated_bdt_total)),
         "overdue_by_currency": overdue_by_currency,
         "fees_by_method": fees_by_method,
         "top_clients": top_clients,
+        "exchange_rates_info": {
+            "source": rates_data.get("source"),
+            "playground_url": rates_data.get("playground_url"),
+            "rates": usd_rates,
+        },
     }
 
     # Cache metrics for 60 seconds per user
