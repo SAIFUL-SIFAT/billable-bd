@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 from pathlib import Path
+from datetime import timedelta # type: ignore[assignment]
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 # Note: Added an extra .parent because base.py is in config/settings/ now.
@@ -57,6 +58,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "django_filters",
     "apps.notifications",
+    "apps.reports",
 ]
 
 MIDDLEWARE = [
@@ -172,7 +174,6 @@ REST_FRAMEWORK = {
     
 }
 
-from datetime import timedelta # type: ignore[assignment]
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
@@ -180,3 +181,12 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
 }
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "billable-bd-reports-cache",
+        "TIMEOUT": 60,
+    }
+}
+

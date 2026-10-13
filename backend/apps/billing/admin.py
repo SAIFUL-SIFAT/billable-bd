@@ -57,15 +57,4 @@ class PaymentAdmin(admin.ModelAdmin):
     search_fields = ('invoice__number', 'reference')
 
 
-# Goal: Update PaymentInline and PaymentAdmin to reflect the Day 8 Payment fields.
-# Why it works: Exposes amount_applied, fee_amount, received_bdt, and method in Django Admin.
-# Type it below this block (or update PaymentInline and PaymentAdmin above):
-#
-# # In PaymentInline:
-#
-# # In PaymentAdmin:
-# # list_display = ('id', 'invoice', 'amount_applied', 'fee_amount', 'received_bdt', 'method', 'paid_on', 'created_at')
-# # list_filter = ('paid_on', 'method')
-# # search_fields = ('invoice__number', 'reference')
-
 

@@ -33,6 +33,7 @@ from apps.billing.services import (
     void_invoice,
     record_payment,
     delete_payment,
+    send_invoice,
 )
 from apps.clients.models import Client
 
@@ -126,6 +127,10 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
     serializer_class = InvoiceSerializer
     permission_classes = [permissions.IsAuthenticated]
+    filterset_fields = ['status', 'client']
+    search_fields = ['number', 'client__name', 'notes']
+    ordering_fields = ['issue_date', 'due_date', 'total_amount', 'created_at']
+    ordering = ['-issue_date', '-created_at']
 
     def get_queryset(self):
         """Filter invoices to owner and prefetch related items."""
@@ -146,16 +151,6 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             raise InvoiceStateError("Only DRAFT invoices can be deleted.")
         instance.time_entries.update(is_billed=False, invoice=None)
         instance.delete()
-
-    @action(detail=True, methods=['post'])
-    def send(self, request, pk=None) -> Response:
-        """Transition invoice from DRAFT to SENT."""
-        invoice = self.get_object()
-        if invoice.status != Invoice.Status.DRAFT:
-            raise InvoiceStateError("Only DRAFT invoices can be sent.")
-        invoice.status = Invoice.Status.SENT
-        invoice.save()
-        return Response({"status": "sent"})
 
     @action(detail=True, methods=['post'])
     def void(self, request, pk=None) -> Response:
@@ -197,6 +192,14 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         payment = record_payment(invoice, serializer.validated_data)  # type: ignore[operator,call-arg]
         return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def send(self, request, pk=None) -> Response:
+        invoice = self.get_object()
+        if invoice.status != Invoice.Status.DRAFT:
+            raise InvoiceStateError("Only DRAFT invoices can be sent.")
+        invoice = send_invoice(invoice)
+        return Response(InvoiceSerializer(invoice).data)
 
 
 class PaymentViewSet(mixins.DestroyModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
