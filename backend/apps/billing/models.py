@@ -168,7 +168,7 @@ class Invoice(models.Model):
     Attributes:
         owner: User generating the invoice.
         client: Target billing client.
-        number: Human-readable unique sequence string (e.g. "INV-2025-26-001").
+        number: Human-readable unique sequence string (e.g. "INV-FY2026-27-0001").
         status: Current invoice lifecycle status (DRAFT, SENT, PAID, VOID, OVERDUE).
         issue_date: Date the invoice was issued.
         due_date: Payment deadline.

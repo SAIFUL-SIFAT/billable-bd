@@ -190,9 +190,9 @@ class Day6InvoiceCheckpointTests(APITestCase):
         sent_inv1 = send_invoice(inv1)
         sent_inv2 = send_invoice(inv2)
 
-        self.assertEqual(sent_inv1.number, "INV-2026-27-001")
+        self.assertEqual(sent_inv1.number, "INV-FY2026-27-0001")
         self.assertEqual(sent_inv1.status, Invoice.Status.SENT)
-        self.assertEqual(sent_inv2.number, "INV-2026-27-002")
+        self.assertEqual(sent_inv2.number, "INV-FY2026-27-0002")
         self.assertEqual(sent_inv2.status, Invoice.Status.SENT)
 
         seq = InvoiceSequence.objects.get(owner=self.user, fiscal_year="2026-27")# type: ignore[assignment]

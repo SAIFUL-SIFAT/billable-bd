@@ -10,6 +10,10 @@ class ClientSerializer(serializers.ModelSerializer):
         created_at: Read-only timestamp when the client was created.
     """
 
+    outstanding_by_currency = serializers.SerializerMethodField()
+    total_received_bdt = serializers.SerializerMethodField()
+    last_invoice_date = serializers.SerializerMethodField()
+
     class Meta:
         model = Client
         fields = [
@@ -22,8 +26,36 @@ class ClientSerializer(serializers.ModelSerializer):
             'address',
             'notes',
             'created_at',
+            'outstanding_by_currency',
+            'total_received_bdt',
+            'last_invoice_date',
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['id', 'created_at', 'outstanding_by_currency', 'total_received_bdt', 'last_invoice_date']
+
+    def get_outstanding_by_currency(self, obj: Client) -> list:
+        from django.db.models import Sum, F, DecimalField#type: ignore[attr-defined]
+        from apps.billing.models import Invoice
+        qs = (
+            Invoice.objects.filter(
+                client=obj,
+                status__in=[Invoice.Status.SENT, Invoice.Status.PARTIALLY_PAID],
+            )
+            .values('client__default_currency')
+            .annotate(
+                amount=Sum(F('total_amount') - F('paid_amount'), output_field=DecimalField(max_digits=12, decimal_places=2))
+            )
+        )
+        return [{'currency': r['client__default_currency'], 'amount': str(r['amount'] or '0.00')} for r in qs]
+
+    def get_total_received_bdt(self, obj: Client) -> str:
+        from django.db.models import Sum #type: ignore[attr-defined]
+        from apps.billing.models import Payment
+        total = Payment.objects.filter(invoice__client=obj).aggregate(t=Sum('received_bdt'))['t']
+        return str(total or '0.00')
+
+    def get_last_invoice_date(self, obj: Client) -> str | None:
+        last_inv = obj.invoices.order_by('-issue_date').first()#type: ignore[attr-defined]
+        return str(last_inv.issue_date) if last_inv else None
 
 class ProjectSerializer(serializers.ModelSerializer):
     """Serializer for managing Project model data with billing validation.

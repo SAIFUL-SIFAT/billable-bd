@@ -79,8 +79,8 @@ def send_invoice(invoice: Invoice) -> Invoice:
     sequence.last_number += 1
     sequence.save(update_fields=['last_number'])
 
-    # 5. Format invoice number (e.g. INV-2025-26-001) and update status
-    invoice.number = f"INV-{fy}-{sequence.last_number:03d}"# type: ignore[assignment]
+    # 5. Format invoice number (e.g. INV-FY2026-27-0001) and update status
+    invoice.number = f"INV-FY{fy}-{sequence.last_number:04d}"# type: ignore[assignment]
     invoice.status = Invoice.Status.SENT# type: ignore[assignment]
     invoice.save(update_fields=['number', 'status'])
 

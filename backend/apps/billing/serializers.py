@@ -92,14 +92,15 @@ class InvoiceSerializer(serializers.ModelSerializer):
     """Serializer for Invoice, handling nested items."""
     items = InvoiceItemSerializer(many=True, required=False)
     client_name = serializers.CharField(source='client.name', read_only=True)
+    currency = serializers.CharField(source='client.default_currency', read_only=True)
 
     class Meta:
         model = Invoice
         fields = [
-            'id', 'client', 'client_name', 'number', 'status', 'issue_date', 'due_date',
+            'id', 'client', 'client_name', 'currency', 'number', 'status', 'issue_date', 'due_date',
             'subtotal', 'tax_rate', 'tax_amount', 'total_amount', 'paid_amount', 'notes', 'items'
         ]
-        read_only_fields = ['id', 'number', 'status', 'subtotal', 'tax_amount', 'total_amount', 'paid_amount']
+        read_only_fields = ['id', 'currency', 'number', 'status', 'subtotal', 'tax_amount', 'total_amount', 'paid_amount']
 
     def create(self, validated_data: dict) -> Invoice:
         """Create invoice and nested items atomically, then calculate totals.

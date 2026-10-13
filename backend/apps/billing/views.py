@@ -98,27 +98,47 @@ class TimeEntryViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def totals(self, request) -> Response:
         """
-        Calculate total hours and unbilled totals for the filtered set of time entries.
+        Calculate total hours and unbilled totals grouped per currency for the filtered set of time entries.
 
         Returns:
-            Response: JSON response with total_hours, unbilled_hours, and unbilled_amount.
+            Response: JSON response with total_hours, unbilled_hours, unbilled_amount, and unbilled_by_currency.
         """
         qs = self.filter_queryset(self.get_queryset())
-        stats = qs.aggregate(
+        amount_expr = ExpressionWrapper(
+            F('hours') * F('project__hourly_rate'),
+            output_field=DecimalField(max_digits=12, decimal_places=2)
+        )
+        stats = qs.annotate(_calc_amt=amount_expr).aggregate(
             total_hours=Sum('hours'),
             unbilled_hours=Sum('hours', filter=Q(is_billed=False)),
-            unbilled_amount=Sum(
-                ExpressionWrapper(
-                    F('hours') * F('project__hourly_rate'),
-                    output_field=DecimalField(max_digits=12, decimal_places=2)
-                ),
-                filter=Q(is_billed=False, project__billing_type='hourly')
-            )
+            unbilled_amount=Sum('_calc_amt', filter=Q(is_billed=False, project__billing_type='hourly'))
         )
+        
+        # Calculate unbilled value per currency (never mix heterogeneous currencies)
+        unbilled_by_curr_qs = (
+            qs.annotate(_calc_amt=amount_expr)
+            .filter(is_billed=False, project__billing_type='hourly')
+            .values('project__currency')
+            .annotate(
+                hours=Sum('hours'),
+                amount=Sum('_calc_amt')
+            )
+            .order_by('project__currency')
+        )
+        unbilled_by_currency = [
+            {
+                'currency': row['project__currency'],
+                'hours': str(row['hours']),
+                'amount': str(row['amount']),
+            }
+            for row in unbilled_by_curr_qs
+        ]
+
         return Response({
             'total_hours': stats['total_hours'] or 0,
             'unbilled_hours': stats['unbilled_hours'] or 0,
             'unbilled_amount': stats['unbilled_amount'] or 0,
+            'unbilled_by_currency': unbilled_by_currency,
         })
 
 
@@ -214,3 +234,4 @@ class PaymentViewSet(mixins.DestroyModelMixin, mixins.RetrieveModelMixin, viewse
     def perform_destroy(self, instance: Any) -> None:
         """Delete payment and recompute invoice balance and status."""
         delete_payment(instance)
+

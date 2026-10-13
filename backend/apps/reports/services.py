@@ -245,6 +245,72 @@ def get_dashboard_data(user: Any) -> Dict[str, Any]:
         for row in fees_qs
     ]
 
+    # Current month fees (labeled period)
+    fees_month_qs = (
+        Payment.objects.filter(
+            invoice__owner=user,
+            paid_on__year=today.year,
+            paid_on__month=today.month,
+        )
+        .values("invoice__client__default_currency")
+        .annotate(
+            total=Coalesce(
+                Sum("fee_amount"),
+                Decimal("0.00"),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            )
+        )
+        .order_by("invoice__client__default_currency")
+    )
+    fees_this_month = [
+        {
+            "currency": row["invoice__client__default_currency"],
+            "total": str(quantize_money(row["total"])),
+        }
+        for row in fees_month_qs
+    ]
+
+    # Gross vs Net performance per currency across recorded payments
+    gross_vs_net_qs = (
+        Payment.objects.filter(invoice__owner=user)
+        .values("invoice__client__default_currency")
+        .annotate(
+            applied=Coalesce(
+                Sum("amount_applied"),
+                Decimal("0.00"),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+            fees=Coalesce(
+                Sum("fee_amount"),
+                Decimal("0.00"),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            ),
+            received_bdt=Coalesce(
+                Sum("received_bdt"),
+                Decimal("0.00"),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+        )
+        .order_by("invoice__client__default_currency")
+    )
+    gross_vs_net = []
+    for row in gross_vs_net_qs:
+        applied_val = row["applied"]
+        fee_val = row["fees"]
+        net_val = applied_val - fee_val
+        rec_bdt = row["received_bdt"]
+        fee_pct = (fee_val / applied_val * 100) if applied_val > 0 else Decimal("0.00")
+        weighted_rate = (rec_bdt / net_val) if net_val > 0 else None
+
+        gross_vs_net.append({
+            "currency": row["invoice__client__default_currency"],
+            "applied": str(quantize_money(applied_val)),
+            "fees": str(quantize_money(fee_val)),
+            "fee_percentage": str(fee_pct.quantize(Decimal("0.1"))),
+            "received_bdt": str(quantize_money(rec_bdt)),
+            "weighted_rate": str(weighted_rate.quantize(Decimal("0.01"))) if weighted_rate else None,
+        })
+
     current_fy = fiscal_year_for(today)
     fy_start_y = int(current_fy[:4])
     fy_start_date = date(fy_start_y, 7, 1)
@@ -305,6 +371,8 @@ def get_dashboard_data(user: Any) -> Dict[str, Any]:
         "estimated_outstanding_bdt": str(quantize_money(estimated_bdt_total)),
         "overdue_by_currency": overdue_by_currency,
         "fees_by_method": fees_by_method,
+        "fees_this_month": fees_this_month,
+        "gross_vs_net": gross_vs_net,
         "top_clients": top_clients,
         "exchange_rates_info": {
             "source": rates_data.get("source"),
@@ -421,11 +489,84 @@ def get_fiscal_year_report(user: Any, fy: Optional[str] = None) -> Dict[str, Any
         for row in fees_qs
     ]
 
+    # Monthly received BDT breakdown throughout fiscal year
+    monthly_qs = (
+        Payment.objects.filter(
+            invoice__owner=user,
+            paid_on__gte=fy_start,
+            paid_on__lte=fy_end,
+        )
+        .annotate(m=TruncMonth("paid_on"))
+        .values("m")
+        .annotate(
+            total=Coalesce(
+                Sum("received_bdt"),
+                Decimal("0.00"),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        )
+        .order_by("m")
+    )
+    monthly_received_bdt = [
+        {
+            "month": row["m"].strftime("%Y-%m"),
+            "received_bdt": str(quantize_money(row["total"])),
+        }
+        for row in monthly_qs
+    ]
+
+    # Currency performance: applied, fees, % fees of gross, received BDT, and average effective rate
+    perf_qs = (
+        Payment.objects.filter(
+            invoice__owner=user,
+            paid_on__gte=fy_start,
+            paid_on__lte=fy_end,
+        )
+        .values("invoice__client__default_currency")
+        .annotate(
+            applied=Coalesce(
+                Sum("amount_applied"),
+                Decimal("0.00"),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+            fees=Coalesce(
+                Sum("fee_amount"),
+                Decimal("0.00"),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            ),
+            received_bdt=Coalesce(
+                Sum("received_bdt"),
+                Decimal("0.00"),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+        )
+        .order_by("invoice__client__default_currency")
+    )
+    currency_performance = []
+    for row in perf_qs:
+        applied_val = row["applied"]
+        fee_val = row["fees"]
+        net_val = applied_val - fee_val
+        rec_bdt = row["received_bdt"]
+        fee_pct = (fee_val / applied_val * 100) if applied_val > 0 else Decimal("0.00")
+        avg_rate = (rec_bdt / net_val) if net_val > 0 else None
+
+        currency_performance.append({
+            "currency": row["invoice__client__default_currency"],
+            "applied": str(quantize_money(applied_val)),
+            "fees": str(quantize_money(fee_val)),
+            "fee_percentage": str(fee_pct.quantize(Decimal("0.1"))),
+            "received_bdt": str(quantize_money(rec_bdt)),
+            "average_effective_rate": str(avg_rate.quantize(Decimal("0.01"))) if avg_rate else None,
+        })
+
     payload: Dict[str, Any] = {
         "fy": target_fy,
         "received_bdt": received_bdt,
         "invoiced_by_currency": invoiced_by_currency,
         "fees_by_currency": fees_by_currency,
+        "monthly_received_bdt": monthly_received_bdt,
+        "currency_performance": currency_performance,
     }
 
     cache.set(cache_key, payload, timeout=60)

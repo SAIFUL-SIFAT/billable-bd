@@ -57,7 +57,7 @@ class Command(BaseCommand):
             inv1 = Invoice.objects.create(
                 owner=user,
                 client=client_usd,
-                number="INV-2026-27-001",
+                number="INV-FY2026-27-0001",
                 status=Invoice.Status.PAID,
                 issue_date=date(2026, 10, 1),
                 due_date=date(2026, 10, 15),
@@ -78,7 +78,7 @@ class Command(BaseCommand):
             inv2 = Invoice.objects.create(
                 owner=user,
                 client=client_usd,
-                number="INV-2026-27-002",
+                number="INV-FY2026-27-0002",
                 status=Invoice.Status.PARTIALLY_PAID,
                 issue_date=date(2026, 9, 10),
                 due_date=date(2026, 9, 24),  # Past due -> Overdue!
@@ -99,7 +99,7 @@ class Command(BaseCommand):
             Invoice.objects.create(
                 owner=user,
                 client=client_eur,
-                number="INV-2026-27-003",
+                number="INV-FY2026-27-0003",
                 status=Invoice.Status.SENT,
                 issue_date=date(2026, 10, 2),
                 due_date=date(2026, 10, 25),  # Future due date -> NOT overdue
@@ -112,7 +112,7 @@ class Command(BaseCommand):
             Invoice.objects.create(
                 owner=user,
                 client=client_eur,
-                number="INV-2026-27-004",
+                number="INV-FY2026-27-0004",
                 status=Invoice.Status.SENT,
                 issue_date=date(2026, 8, 1),
                 due_date=date(2026, 8, 15),  # Past due -> Overdue!
@@ -125,7 +125,7 @@ class Command(BaseCommand):
             inv5 = Invoice.objects.create(
                 owner=user,
                 client=client_usd,
-                number="INV-2025-26-088",
+                number="INV-FY2025-26-0088",
                 status=Invoice.Status.PAID,
                 issue_date=date(2026, 6, 10),
                 due_date=date(2026, 6, 24),
