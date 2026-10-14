@@ -34,6 +34,7 @@ from django.utils import timezone#type: ignore
 from datetime import timedelta
 from apps.billing.models import Invoice
 from rest_framework import status
+from freezegun import freeze_time
 
 
 
@@ -427,3 +428,117 @@ class Day8FromTimeAndPaymentTests(APITestCase):
         # Fee >= applied amount
         res_fee = self.client.post(url, {"amount_applied": "50.00", "fee_amount": "50.00", "received_bdt": "6000.00"})
         self.assertEqual(res_fee.status_code, status.HTTP_409_CONFLICT)  # type: ignore
+
+
+
+class PublicInvoiceLinkTests(APITestCase):
+    """Integration tests for signed public invoice links (Day 11 checkpoint)."""
+
+    def setUp(self) -> None:
+        """Initialize user, client, invoice with items and payments."""
+        self.user = User.objects.create_user(email="owner@test.com", password="password123")
+        self.client_obj = Client.objects.create(# type: ignore[assignment]
+            owner=self.user,
+            name="Global Client Inc",
+            email="billing@global.com",
+            default_currency="USD",
+        )
+        self.invoice = Invoice.objects.create(
+            owner=self.user,
+            client=self.client_obj,
+            number="INV-2026-0001",
+            status=Invoice.Status.SENT,
+            issue_date=date(2026, 10, 1),
+            due_date=date(2026, 10, 15),
+            subtotal=Decimal("1000.00"),
+            tax_rate=Decimal("5.00"),
+            tax_amount=Decimal("50.00"),
+            total_amount=Decimal("1050.00"),
+            paid_amount=Decimal("500.00"),
+            notes="Wire instructions: IBAN XXXX (Internal: client is slow)",
+        )
+        InvoiceItem.objects.create(# type: ignore[assignment]
+            invoice=self.invoice,
+            description="Web design hours",
+            quantity=Decimal("20.00"),
+            unit_price=Decimal("50.00"),
+            subtotal=Decimal("1000.00"),
+        )
+
+    def test_public_link_lifecycle_and_trimmed_serializer(self) -> None:
+        """Test share action, trimmed fields, and public access without auth."""
+        self.client.force_authenticate(user=self.user) #type: ignore
+        share_res = self.client.post(f"/api/billing/invoices/{self.invoice.id}/share/")
+        self.assertEqual(share_res.status_code, status.HTTP_200_OK)# type: ignore[assignment]
+        token = share_res.data["token"] #type: ignore
+        self.assertTrue(token)
+
+        # Public access without authentication
+        self.client.logout() #type: ignore
+        pub_res = self.client.get(f"/api/billing/public/invoices/{token}/")
+        self.assertEqual(pub_res.status_code, status.HTTP_200_OK)# type: ignore[assignment]
+
+        # Verify trimmed fields (client-safe)
+        data = pub_res.data #type: ignore
+        self.assertEqual(data["number"], "INV-2026-0001")
+        self.assertEqual(data["client_name"], "Global Client Inc")
+        self.assertEqual(data["balance_due"], "550.00")
+        self.assertEqual(len(data["items"]), 1)
+
+        # Verify private fields are NEVER exposed
+        self.assertNotIn("received_bdt", data)
+        self.assertNotIn("fee_amount", data)
+        self.assertNotIn("effective_rate", data)
+        self.assertNotIn("owner", data)
+
+    def test_tampered_token_is_rejected(self) -> None:
+        """Checkpoint: Tampering with signed token returns 400 Bad Request."""
+        self.client.force_authenticate(user=self.user) #type: ignore
+        share_res = self.client.post(f"/api/billing/invoices/{self.invoice.id}/share/")
+        valid_token = share_res.data["token"] #type: ignore
+
+        # Tamper with the token characters
+        tampered_token = valid_token[:-4] + "xxxx"
+        self.client.logout() #type: ignore
+        res = self.client.get(f"/api/billing/public/invoices/{tampered_token}/")
+        self.assertEqual(res.status_code, status.HTTP_409_CONFLICT)# type: ignore[assignment]
+        self.assertIn("Invalid public invoice link", str(res.data)) #type: ignore
+
+    def test_expired_token_is_rejected(self) -> None:
+        """Checkpoint: Token older than max_age (30 days) is rejected via freezegun."""
+        self.client.force_authenticate(user=self.user) #type: ignore
+        with freeze_time("2026-10-01 12:00:00"):
+            share_res = self.client.post(f"/api/billing/invoices/{self.invoice.id}/share/")
+            token = share_res.data["token"] #type: ignore
+
+        self.client.logout() #type: ignore
+
+        # Fast forward 31 days into future
+        with freeze_time("2026-11-02 12:00:00"):
+            res = self.client.get(f"/api/billing/public/invoices/{token}/")
+            self.assertEqual(res.status_code, status.HTTP_409_CONFLICT)# type: ignore[assignment]
+            self.assertIn("expired", str(res.data)) #type: ignore
+
+    def test_revocation_invalidates_previous_token(self) -> None:
+        """Checkpoint: Revoking a public link increments token_version and kills old tokens."""
+        self.client.force_authenticate(user=self.user) #type: ignore
+        token_v1 = self.client.post(f"/api/billing/invoices/{self.invoice.id}/share/").data["token"] #type: ignore
+
+        # Revoke the link
+        revoke_res = self.client.post(f"/api/billing/invoices/{self.invoice.id}/revoke-public-link/")
+        self.assertEqual(revoke_res.status_code, status.HTTP_200_OK)# type: ignore[assignment]
+        self.assertEqual(revoke_res.data["token_version"], 2) #type: ignore
+
+        # Attempting to access using v1 token fails
+        self.client.logout() #type: ignore
+        res_v1 = self.client.get(f"/api/billing/public/invoices/{token_v1}/")
+        self.assertEqual(res_v1.status_code, status.HTTP_409_CONFLICT)# type: ignore[assignment]
+        self.assertIn("revoked", str(res_v1.data)) #type: ignore
+
+        # Newly generated token with v2 works
+        self.client.force_authenticate(user=self.user) #type: ignore
+        token_v2 = self.client.post(f"/api/billing/invoices/{self.invoice.id}/share/").data["token"] #type: ignore
+        self.client.logout() #type: ignore
+        res_v2 = self.client.get(f"/api/billing/public/invoices/{token_v2}/")
+        self.assertEqual(res_v2.status_code, status.HTTP_200_OK)# type: ignore[assignment]
+

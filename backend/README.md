@@ -62,7 +62,8 @@ uv run python manage.py createsuperuser
 uv run python manage.py runserver
 ```
 
-API: `http://127.0.0.1:8000/` — Admin: `http://127.0.0.1:8000/admin`
+API: `http://127.0.0.1:8000/` —
+ Admin: `http://127.0.0.1:8000/admin`
 
 No need to create or activate a virtualenv: `uv run` uses the project's `.venv` automatically.
 

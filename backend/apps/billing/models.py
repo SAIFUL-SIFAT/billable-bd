@@ -202,6 +202,7 @@ class Invoice(models.Model):
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     paid_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     notes = models.TextField(blank=True)
+    token_version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

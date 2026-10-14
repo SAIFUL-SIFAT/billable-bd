@@ -11,6 +11,7 @@ from apps.core.exceptions import DomainError, InvoiceStateError, PaymentValidati
 from django.utils import timezone # type: ignore[assignment]
 from apps.billing.models import TimeEntry, InvoiceItem, Payment
 from apps.clients.models import Client
+from django.core.signing import TimestampSigner, BadSignature, SignatureExpired# type: ignore[assignment]
 
 def compute_invoice_totals(invoice: Invoice) -> Invoice:
     """
@@ -289,5 +290,56 @@ def delete_payment(payment: Payment) -> Invoice:
         invoice.status = Invoice.Status.PAID
 
     invoice.save(update_fields=['paid_amount', 'status'])
+    return invoice
+
+
+
+PUBLIC_INVOICE_SALT = "public-invoice-link"
+
+
+def generate_public_token(invoice: Invoice) -> str:
+    """Generate a signed, timestamped token encoding invoice ID and token version.
+
+    Returns:
+        Signed, URL-safe string token.
+    """
+    signer = TimestampSigner(salt=PUBLIC_INVOICE_SALT)
+    payload = f"{invoice.id}:{invoice.token_version}"# type: ignore[assignment]
+    return signer.sign(payload)
+
+
+def resolve_public_token(token: str, max_age_days: int = 30) -> Invoice:
+    """Validate a signed token, verify its version, and retrieve the public invoice.
+    """
+    signer = TimestampSigner(salt=PUBLIC_INVOICE_SALT)
+    try:
+        payload = signer.unsign(token, max_age=max_age_days * 86400)
+    except SignatureExpired:
+        raise DomainError("This public invoice link has expired.")
+    except BadSignature:
+        raise DomainError("Invalid public invoice link.")
+
+    parts = payload.split(":")
+    if len(parts) != 2:
+        raise DomainError("Malformed public invoice link.")
+
+    invoice_id, signed_version = parts[0], parts[1]
+    try:
+        invoice = Invoice.objects.select_related("client", "owner").prefetch_related("items").get(pk=invoice_id)
+    except Invoice.DoesNotExist:# type: ignore[assignment]
+        raise DomainError("Invoice not found.")
+
+    if str(invoice.token_version) != str(signed_version):
+        raise DomainError("This public invoice link has been revoked.")
+
+    return invoice
+
+
+@transaction.atomic
+def revoke_public_link(invoice: Invoice) -> Invoice:
+    """Revoke all previously generated public links by incrementing token_version.
+    """
+    invoice.token_version += 1# type: ignore[assignment]
+    invoice.save(update_fields=["token_version"])
     return invoice
 

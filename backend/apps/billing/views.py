@@ -19,7 +19,10 @@ from rest_framework import viewsets, permissions, mixins, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404  # type: ignore
-
+from rest_framework.views import APIView
+from rest_framework.throttling import AnonRateThrottle
+from apps.billing.serializers import PublicInvoiceSerializer
+from apps.billing.services import resolve_public_token
 from apps.billing.models import TimeEntry, Invoice, Payment
 from apps.billing.serializers import (
     TimeEntrySerializer,
@@ -36,6 +39,15 @@ from apps.billing.services import (
     send_invoice,
 )
 from apps.clients.models import Client
+from apps.billing.services import (
+    create_invoice_from_time,
+    void_invoice,
+    record_payment,
+    delete_payment,
+    send_invoice,
+    generate_public_token,
+    revoke_public_link,
+)
 
 
 class TimeEntryFilter(filters.FilterSet):
@@ -221,6 +233,23 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         invoice = send_invoice(invoice)
         return Response(InvoiceSerializer(invoice).data)
 
+    @action(detail=True, methods=["post"], url_path="share")
+    def share(self, request: Any, pk: Any = None) -> Response:
+        """Generate a signed public link token for sharing the invoice."""
+        invoice = self.get_object()
+        token = generate_public_token(invoice)# type: ignore[assignment]
+        return Response({"token": token, "token_version": invoice.token_version}, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=["post"], url_path="revoke-public-link")
+    def revoke_public_link(self, request: Any, pk: Any = None) -> Response:
+        """Revoke current public link by incrementing token version."""
+        invoice = self.get_object()
+        invoice = revoke_public_link(invoice)# type: ignore[assignment]
+        return Response(
+            {"detail": "Public link revoked successfully.", "token_version": invoice.token_version},
+            status=status.HTTP_200_OK,
+        )
+
 
 class PaymentViewSet(mixins.DestroyModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """ViewSet for managing individual payments (US-16)."""
@@ -234,4 +263,18 @@ class PaymentViewSet(mixins.DestroyModelMixin, mixins.RetrieveModelMixin, viewse
     def perform_destroy(self, instance: Any) -> None:
         """Delete payment and recompute invoice balance and status."""
         delete_payment(instance)
+
+
+class PublicInvoiceView(APIView):
+    """Unauthenticated public view for external clients to view shared invoices."""
+
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [AnonRateThrottle]
+
+    def get(self, request: Any, token: str) -> Response:
+        """Resolve signed token and return sanitized public invoice details."""
+        invoice = resolve_public_token(token)
+        serializer = PublicInvoiceSerializer(invoice)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
 

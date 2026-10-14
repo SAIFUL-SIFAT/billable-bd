@@ -187,3 +187,49 @@ class InvoiceFromTimeSerializer(serializers.Serializer):
             raise serializers.ValidationError({"date_to": "date_to must be on or after date_from."})
         return data
 
+class PublicInvoiceItemSerializer(serializers.ModelSerializer):
+    """Trimmed line item serializer for public invoice views."""
+
+    class Meta:
+        model = InvoiceItem
+        fields = ["id", "description", "quantity", "unit_price", "subtotal"]
+        read_only_fields = fields
+
+
+class PublicInvoiceSerializer(serializers.ModelSerializer):
+    """Public-safe invoice serializer stripped of internal notes, fees, and BDT conversions."""
+
+    items = PublicInvoiceItemSerializer(many=True, read_only=True)
+    client_name = serializers.CharField(source="client.name", read_only=True)
+    client_email = serializers.CharField(source="client.email", read_only=True)
+    currency = serializers.CharField(source="client.default_currency", read_only=True)
+    balance_due = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Invoice
+        fields = [
+            "id",
+            "number",
+            "status",
+            "issue_date",
+            "due_date",
+            "currency",
+            "client_name",
+            "client_email",
+            "subtotal",
+            "tax_rate",
+            "tax_amount",
+            "total_amount",
+            "paid_amount",
+            "balance_due",
+            "notes",
+            "items",
+        ]
+        read_only_fields = fields
+
+    def get_balance_due(self, obj: Invoice) -> str:
+        """Calculate remaining balance due on the invoice."""
+        balance = max(Decimal("0.00"), obj.total_amount - obj.paid_amount)# type: ignore[assignment]
+        return str(balance)
+
+
