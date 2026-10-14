@@ -66,6 +66,16 @@ export const invoiceApi = {
         return response.data;
     },
 
+    shareInvoice: async (id: number): Promise<{ token: string; token_version: number }> => {
+        const response = await api.post(`/billing/invoices/${id}/share/`);
+        return response.data;
+    },
+
+    revokePublicLink: async (id: number): Promise<{ detail: string; token_version: number }> => {
+        const response = await api.post(`/billing/invoices/${id}/revoke-public-link/`);
+        return response.data;
+    },
+
     createInvoiceFromTime: async (payload: InvoiceFromTimePayload): Promise<Invoice> => {
         const response = await api.post('/billing/invoices/from-time/', payload);
         return response.data;
@@ -81,8 +91,18 @@ export const invoiceApi = {
         return response.data;
     },
 
+    createPayment: async (invoiceId: number, payload: CreatePaymentPayload): Promise<Payment> => {
+        const response = await api.post(`/billing/invoices/${invoiceId}/payments/`, payload);
+        return response.data;
+    },
+
     deletePayment: async (paymentId: number): Promise<void> => {
         await api.delete(`/billing/payments/${paymentId}/`);
+    },
+
+    getPublicInvoice: async (token: string): Promise<any> => {
+        const response = await api.get(`/billing/public/invoices/${token}/`);
+        return response.data;
     },
 };
 

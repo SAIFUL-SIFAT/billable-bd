@@ -11,6 +11,9 @@ export interface Client {
     address: string;
     notes: string;
     created_at: string;
+    outstanding_by_currency?: { currency: string; amount: string }[];
+    total_received_bdt?: string;
+    last_invoice_date?: string | null;
 }
 
 export interface Project {

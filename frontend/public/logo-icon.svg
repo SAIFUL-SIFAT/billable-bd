@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t">
+  <title id="t">Billable BD — Hourglass Tile</title>
+  <rect id="background" width="256" height="256" rx="56" fill="#12151C"/>
+  <path id="hours" fill="#FFFFFF" d="M184.12 101.94 L184.12 95.60 L128.00 63.20 L71.88 95.60 L71.88 101.94 L111.74 124.95 L144.26 124.95 Z"/>
+  <path id="invoice" fill="#F5A524" d="M184.12 160.40 L184.12 154.06 L144.26 131.05 L111.74 131.05 L71.88 154.06 L71.88 160.40 L128.00 192.80 Z"/>
+</svg>

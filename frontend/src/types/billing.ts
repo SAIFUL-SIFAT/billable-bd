@@ -14,6 +14,11 @@ export interface TimeEntryTotals {
     total_hours: number;
     unbilled_hours: number;
     unbilled_amount: number;
+    unbilled_by_currency?: {
+        currency: string;
+        hours: string;
+        amount: string;
+    }[];
 }
 
 export interface CreateTimeEntryPayload {
@@ -47,6 +52,7 @@ export interface Invoice {
     id: number;
     client: number;
     client_name?: string;
+    currency?: string;
     number: string;
     status: InvoiceStatus;
     issue_date: string;
