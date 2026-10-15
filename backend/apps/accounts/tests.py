@@ -107,22 +107,6 @@ class TestProfileSettingsAndUploads:
         assert res.status_code == status.HTTP_400_BAD_REQUEST  # type: ignore
         assert "File size exceeds 2MB limit" in str(res.data)  # type: ignore
 
-    def test_reject_oversized_file(self):
-        """Uploading a file exceeding 2MB limit is rejected with 400 Bad Request."""
-        oversized_bytes = b"0" * (2 * 1024 * 1024 + 1024)  # 2MB + 1KB
-        oversized_file = SimpleUploadedFile(
-            "heavy.png",
-            oversized_bytes,
-            content_type="image/png",
-        )
-        res = self.client.patch(
-            "/api/accounts/profile/",
-            {"logo": oversized_file},
-            format="multipart",
-        )
-        assert res.status_code == status.HTTP_400_BAD_REQUEST#type:ignore
-        assert "File size exceeds 2MB limit" in str(res.data)#type:ignore
-
     def test_delete_profile_logo(self):
         """DELETE /api/accounts/profile/logo/ clears the logo from profile."""
         # First attach a logo

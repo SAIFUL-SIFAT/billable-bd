@@ -121,14 +121,14 @@ class Command(BaseCommand):
                 paid_amount=Decimal("0.00"),
             )
 
-            # Invoice 5: Prior Fiscal Year Boundary Test (June 20, 2026 -> FY 2025-26)
+            # Invoice 5: Fiscal Year Boundary Test (June 30, 2026 -> FY 2025-26)
             inv5 = Invoice.objects.create(
                 owner=user,
                 client=client_usd,
                 number="INV-FY2025-26-0088",
                 status=Invoice.Status.PAID,
-                issue_date=date(2026, 6, 10),
-                due_date=date(2026, 6, 24),
+                issue_date=date(2026, 6, 30),
+                due_date=date(2026, 7, 14),
                 subtotal=Decimal("500.00"),
                 total_amount=Decimal("500.00"),
                 paid_amount=Decimal("500.00"),
@@ -139,7 +139,28 @@ class Command(BaseCommand):
                 fee_amount=Decimal("10.00"),
                 received_bdt=Decimal("58000.00"),
                 method=Payment.Method.WISE,
-                paid_on=date(2026, 6, 20),
+                paid_on=date(2026, 6, 30),
+            )
+
+            # Invoice 6: Fiscal Year Boundary Test (July 1, 2026 -> FY 2026-27 start)
+            inv6 = Invoice.objects.create(
+                owner=user,
+                client=client_bdt,
+                number="INV-FY2026-27-0005",
+                status=Invoice.Status.PAID,
+                issue_date=date(2026, 7, 1),
+                due_date=date(2026, 7, 15),
+                subtotal=Decimal("25000.00"),
+                total_amount=Decimal("25000.00"),
+                paid_amount=Decimal("25000.00"),
+            )
+            Payment.objects.create(
+                invoice=inv6,
+                amount_applied=Decimal("25000.00"),
+                fee_amount=Decimal("0.00"),
+                received_bdt=Decimal("25000.00"),
+                method=Payment.Method.BANK_TRANSFER,
+                paid_on=date(2026, 7, 1),
             )
 
         self.stdout.write(self.style.SUCCESS("Successfully seeded deterministic demo data for demo@billable.test!"))#type: ignore

@@ -17,7 +17,7 @@ class MeView(APIView):
         Args: request (Request)
         Returns: Response with serialized user data.
         """
-        serializer = UserSerializer(request.user)
+        serializer = UserSerializer(request.user, context={"request": request})
         return Response(serializer.data)
 
 class RegisterView(APIView):

@@ -15,9 +15,11 @@ Automated Checkpoints Enforced:
    test_unbilled_queryset_filter verifies TimeEntryQuerySet.unbilled() filters accurately.
 """
 
+import threading
 from datetime import date 
 from django.contrib.auth import get_user_model # type: ignore[assignment]
 from rest_framework.test import APITestCase
+from django.test import TransactionTestCase# type: ignore[assignment]
 from rest_framework import status
 from apps.clients.models import Client, Project
 from apps.billing.models import TimeEntry
@@ -541,4 +543,181 @@ class PublicInvoiceLinkTests(APITestCase):
         self.client.logout() #type: ignore
         res_v2 = self.client.get(f"/api/billing/public/invoices/{token_v2}/")
         self.assertEqual(res_v2.status_code, status.HTTP_200_OK)# type: ignore[assignment]
+
+
+class InvoiceConcurrencyTests(TransactionTestCase):
+    """Concurrency verification: Two simultaneous send_invoice calls never share or duplicate an invoice number."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(email="concurrent@billable.test", password="password123")
+        self.client_obj = Client.objects.create(# type: ignore[assignment]
+            owner=self.user,
+            name="Concurrent Client Inc",
+            default_currency="USD",
+        )
+
+    def test_concurrent_send_invoice_never_duplicates_number(self):
+        """Simultaneous threads calling send_invoice on distinct drafts acquire select_for_update() locks sequentially."""
+        inv1 = Invoice.objects.create(
+            owner=self.user,
+            client=self.client_obj,
+            issue_date=date(2026, 8, 1),
+            due_date=date(2026, 8, 15),
+            subtotal=Decimal("100.00"),
+            total_amount=Decimal("100.00"),
+        )
+        inv2 = Invoice.objects.create(
+            owner=self.user,
+            client=self.client_obj,
+            issue_date=date(2026, 8, 2),
+            due_date=date(2026, 8, 16),
+            subtotal=Decimal("200.00"),
+            total_amount=Decimal("200.00"),
+        )
+
+        results = {}
+        exceptions = []
+
+        def worker(inv, key):
+            try:
+                sent = send_invoice(inv)
+                results[key] = sent.number
+            except Exception as e:
+                exceptions.append(e)
+
+        t1 = threading.Thread(target=worker, args=(inv1, "inv1"))
+        t2 = threading.Thread(target=worker, args=(inv2, "inv2"))
+
+        t1.start()
+        t2.start()
+
+        t1.join()
+        t2.join()
+
+        self.assertEqual(len(exceptions), 0, f"Exceptions occurred during concurrent send: {exceptions}")
+        self.assertEqual(len(results), 2)
+        # Numbers must be distinct and sequential
+        self.assertNotEqual(results["inv1"], results["inv2"])
+        numbers = {results["inv1"], results["inv2"]}
+        self.assertEqual(numbers, {"INV-FY2026-27-0001", "INV-FY2026-27-0002"})
+
+
+class EndpointTenantIsolationTests(APITestCase):
+    """Comprehensive permission matrix: A test for every billing endpoint proving user B cannot touch user A's data."""
+
+    def setUp(self):
+        self.user_a = User.objects.create_user(email="user_a_sec@test.com", password="password123")
+        self.user_b = User.objects.create_user(email="user_b_sec@test.com", password="password123")
+
+        self.client_a = Client.objects.create(owner=self.user_a, name="Client of User A", default_currency="USD")# type: ignore[assignment]
+        self.project_a = Project.objects.create(# type: ignore[assignment]
+            owner=self.user_a, client=self.client_a, name="Project of User A", billing_type="hourly", hourly_rate=100.00
+        )
+        self.time_entry_a = TimeEntry.objects.create(
+            owner=self.user_a, project=self.project_a, date=date(2026, 9, 1), hours=Decimal("5.00")
+        )
+        self.invoice_a = Invoice.objects.create(
+            owner=self.user_a,
+            client=self.client_a,
+            issue_date=date(2026, 9, 1),
+            due_date=date(2026, 9, 15),
+            subtotal=Decimal("500.00"),
+            total_amount=Decimal("500.00"),
+        )
+        self.payment_a = self.invoice_a.payments.create(
+            amount_applied=Decimal("200.00"),
+            fee_amount=Decimal("5.00"),
+            received_bdt=Decimal("23000.00"),
+            method="wise",
+            paid_on=date(2026, 9, 10),
+        )
+
+    def test_user_b_cannot_get_user_a_invoice(self):
+        """User B requesting User A's invoice returns 404."""
+        self.client.force_authenticate(user=self.user_b)# type: ignore[assignment]
+        res = self.client.get(f"/api/billing/invoices/{self.invoice_a.id}/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)# type: ignore[assignment]
+
+    def test_user_b_cannot_update_user_a_invoice(self):
+        """User B attempting to patch User A's invoice returns 404."""
+        self.client.force_authenticate(user=self.user_b)# type: ignore[assignment]
+        res = self.client.patch(f"/api/billing/invoices/{self.invoice_a.id}/", {"notes": "Hacked"})
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)# type: ignore[assignment]
+
+    def test_user_b_cannot_delete_user_a_invoice(self):
+        """User B attempting to delete User A's invoice returns 404."""
+        self.client.force_authenticate(user=self.user_b)# type: ignore[assignment]
+        res = self.client.delete(f"/api/billing/invoices/{self.invoice_a.id}/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)# type: ignore[assignment]
+
+    def test_user_b_cannot_send_user_a_invoice(self):
+        """User B attempting to transition User A's invoice to sent returns 404."""
+        self.client.force_authenticate(user=self.user_b)# type: ignore[assignment]
+        res = self.client.post(f"/api/billing/invoices/{self.invoice_a.id}/send-invoice/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)# type: ignore[assignment]
+
+    def test_user_b_cannot_share_user_a_invoice(self):
+        """User B attempting to generate share token for User A's invoice returns 404."""
+        self.client.force_authenticate(user=self.user_b)# type: ignore[assignment]
+        res = self.client.post(f"/api/billing/invoices/{self.invoice_a.id}/share/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)# type: ignore[assignment]
+
+    def test_user_b_cannot_revoke_user_a_invoice_link(self):
+        """User B attempting to revoke User A's invoice share link returns 404."""
+        self.client.force_authenticate(user=self.user_b)# type: ignore[assignment]
+        res = self.client.post(f"/api/billing/invoices/{self.invoice_a.id}/revoke-public-link/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)# type: ignore[assignment]
+
+    def test_user_b_cannot_get_user_a_payment(self):
+        """User B requesting User A's payment record returns 404."""
+        self.client.force_authenticate(user=self.user_b)# type: ignore[assignment]
+        res = self.client.get(f"/api/billing/payments/{self.payment_a.id}/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)# type: ignore[assignment]
+
+    def test_user_b_cannot_delete_user_a_payment(self):
+        """User B attempting to delete User A's payment returns 404."""
+        self.client.force_authenticate(user=self.user_b)# type: ignore[assignment]
+        res = self.client.delete(f"/api/billing/payments/{self.payment_a.id}/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)# type: ignore[assignment]
+
+    def test_user_b_cannot_record_payment_against_user_a_invoice(self):
+        """User B attempting to create a payment against User A's invoice returns 404 Not Found."""
+        self.client.force_authenticate(user=self.user_b)# type: ignore[assignment]
+        res = self.client.post(
+            "/api/billing/payments/",
+            {
+                "invoice": self.invoice_a.id,
+                "amount_applied": "100.00",
+                "fee_amount": "2.00",
+                "received_bdt": "11500.00",
+                "method": "bank_transfer",
+                "paid_on": "2026-09-12",
+            },
+        )
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)# type: ignore[assignment]
+
+    def test_user_b_cannot_get_user_a_time_entry(self):
+        """User B requesting User A's time entry returns 404."""
+        self.client.force_authenticate(user=self.user_b)# type: ignore[assignment]
+        res = self.client.get(f"/api/billing/time-entries/{self.time_entry_a.id}/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)# type: ignore[assignment]
+
+    def test_user_b_cannot_delete_user_a_time_entry(self):
+        """User B attempting to delete User A's time entry returns 404."""
+        self.client.force_authenticate(user=self.user_b)# type: ignore[assignment]
+        res = self.client.delete(f"/api/billing/time-entries/{self.time_entry_a.id}/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)# type: ignore[assignment]
+
+    def test_user_b_cannot_create_time_entry_for_user_a_project(self):
+        """User B attempting to log time under User A's project returns 400 validation error."""
+        self.client.force_authenticate(user=self.user_b)# type: ignore[assignment]
+        res = self.client.post(
+            "/api/billing/time-entries/",
+            {
+                "project": self.project_a.id,
+                "date": "2026-09-02",
+                "hours": "2.00",
+            },
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)# type: ignore[assignment]
 

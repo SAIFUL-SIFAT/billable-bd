@@ -1,16 +1,29 @@
-from rest_framework import serializers # type: ignore[assignment]
-from django.contrib.auth import get_user_model # type: ignore[assignment]
-from django.contrib.auth.password_validation import validate_password # type: ignore[assignment]
-from .models import Profile
+from typing import TYPE_CHECKING
+from rest_framework import serializers  # type: ignore[assignment]
+from django.contrib.auth import get_user_model  # type: ignore[assignment]
+from django.contrib.auth.password_validation import validate_password  # type: ignore[assignment]
+from .models import Profile, User as UserModel
+
 User = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
-    """Serializer for the /me/ endpoint, exposing safe user details."""
+    """Serializer for the /me/ endpoint, exposing safe user details and logo."""
+    logo_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = User
-        fields = ('id','email','first_name','last_name')
+        fields = ('id', 'email', 'first_name', 'last_name', 'logo_url')
         read_only_fields = fields
+
+    def get_logo_url(self, obj: UserModel) -> str | None:
+        """Return the absolute URL of the user's profile logo if uploaded."""
+        profile = getattr(obj, "profile", None)
+        if profile and profile.logo:
+            request = self.context.get("request")
+            if request is not None:
+                return request.build_absolute_uri(profile.logo.url)
+            return profile.logo.url
+        return None
 
 class RegisterSerializer(serializers.ModelSerializer):
     """Handles new user registration, enforcing password validation and email normalization."""
