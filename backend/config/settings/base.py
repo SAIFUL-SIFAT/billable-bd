@@ -18,6 +18,7 @@ from datetime import timedelta # type: ignore[assignment]
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 import environ
+import os
 
 # Initialize environ
 env = environ.Env(
@@ -174,7 +175,6 @@ REST_FRAMEWORK = {
     
 }
 
-
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
@@ -189,4 +189,23 @@ CACHES = {
         "TIMEOUT": 60,
     }
 }
+
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+# File upload security limits (2.5MB maximum payload to prevent memory spikes)
+FILE_UPLOAD_MAX_MEMORY_SIZE = 2621440  # 2.5 MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2621440  # 2.5 MB
+
+# Modern Django 4.2+ Storage configuration
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
+
 

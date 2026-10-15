@@ -17,7 +17,8 @@ Including another URLconf
 from django.contrib import admin  # type: ignore[assignment]
 from django.urls import path  # type: ignore[assignment]
 from django.urls import include  # type: ignore[assignment]
-
+from django.conf import settings# type: ignore[assignment]
+from django.conf.urls.static import static# type: ignore[assignment]
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/accounts/", include("apps.accounts.urls")),
@@ -27,7 +28,8 @@ urlpatterns = [
     path("api/", include("apps.notifications.urls")),
 ]
 
-
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 
 
