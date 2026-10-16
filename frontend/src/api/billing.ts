@@ -29,6 +29,14 @@ export const billingApi = {
         const response = await api.get('/billing/time-entries/totals/', { params });
         return response.data;
     },
+
+    exportCsv: async (params?: Record<string, any>): Promise<Blob> => {
+        const response = await api.get('/billing/time-entries/export-csv/', {
+            params,
+            responseType: 'blob',
+        });
+        return response.data;
+    },
 };
 
 export const invoiceApi = {
@@ -76,6 +84,19 @@ export const invoiceApi = {
         return response.data;
     },
 
+    sendReminder: async (id: number): Promise<{ detail: string }> => {
+        const response = await api.post(`/billing/invoices/${id}/send-reminder/`);
+        return response.data;
+    },
+
+    exportCsv: async (params?: Record<string, any>): Promise<Blob> => {
+        const response = await api.get('/billing/invoices/export-csv/', {
+            params,
+            responseType: 'blob',
+        });
+        return response.data;
+    },
+
     createInvoiceFromTime: async (payload: InvoiceFromTimePayload): Promise<Invoice> => {
         const response = await api.post('/billing/invoices/from-time/', payload);
         return response.data;
@@ -98,6 +119,13 @@ export const invoiceApi = {
 
     deletePayment: async (paymentId: number): Promise<void> => {
         await api.delete(`/billing/payments/${paymentId}/`);
+    },
+
+    exportPaymentsCsv: async (): Promise<Blob> => {
+        const response = await api.get('/billing/payments/export-csv/', {
+            responseType: 'blob',
+        });
+        return response.data;
     },
 
     getPublicInvoice: async (token: string): Promise<any> => {
