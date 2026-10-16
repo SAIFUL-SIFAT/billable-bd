@@ -305,3 +305,50 @@ class Payment(models.Model):
     def __str__(self) -> str:
         return f"Payment {self.amount_applied} for Invoice {self.invoice.number} on {self.paid_on}"
 
+
+class Expense(models.Model):
+    """
+    Tracks business expenses for calculating net profit (US-24).
+
+    Attributes:
+        owner: User who incurred the expense.
+        category: Expense classification (SOFTWARE, HARDWARE, OFFICE, UTILITIES, TAX, OTHER).
+        description: Description or payee of the expense.
+        amount: Raw expenditure in invoice/spend currency.
+        currency: Currency symbol of expense (BDT, USD, etc.).
+        amount_bdt: Normalized taka equivalent for uniform net profit calculation.
+        date: Date expense occurred.
+        created_at: Audit timestamp.
+    """
+    class Category(models.TextChoices):
+        SOFTWARE = 'software', 'Software & Subscriptions'
+        HARDWARE = 'hardware', 'Hardware & Equipment'
+        OFFICE = 'office', 'Office & Coworking'
+        UTILITIES = 'utilities', 'Internet & Utilities'
+        TAX = 'tax', 'Taxes & Government Fees'
+        OTHER = 'other', 'Other Business Expenses'
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='expenses')
+    category = models.CharField(max_length=50, choices=Category.choices, default=Category.SOFTWARE)
+    description = models.CharField(max_length=255)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3, choices=settings.AUTH_USER_MODEL and [('BDT', 'BDT'), ('USD', 'USD'), ('EUR', 'EUR'), ('GBP', 'GBP'), ('AUD', 'AUD'), ('CAD', 'CAD')], default='BDT')
+    amount_bdt = models.DecimalField(max_digits=14, decimal_places=2, help_text="Amount in BDT used for profit deduction")
+    date = models.DateField(default=timezone.localdate)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+        indexes = [
+            models.Index(fields=['owner', 'date'], name='expense_owner_date_idx'),
+            models.Index(fields=['owner', 'category'], name='expense_owner_cat_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(amount__gt=0), name='expense_amount_positive'),
+            models.CheckConstraint(condition=models.Q(amount_bdt__gt=0), name='expense_amount_bdt_positive'),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.description} ({self.amount} {self.currency}) on {self.date}"
+
+

@@ -233,3 +233,33 @@ class PublicInvoiceSerializer(serializers.ModelSerializer):
         return str(balance)
 
 
+class ExpenseSerializer(serializers.ModelSerializer):
+    """Serializer for business expenses (US-24)."""
+
+    class Meta:
+        from apps.billing.models import Expense
+        model = Expense
+        fields = [
+            'id',
+            'category',
+            'description',
+            'amount',
+            'currency',
+            'amount_bdt',
+            'date',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Expense amount must be greater than 0.")
+        return value
+
+    def validate_amount_bdt(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("BDT equivalent amount must be greater than 0.")
+        return value
+
+
+

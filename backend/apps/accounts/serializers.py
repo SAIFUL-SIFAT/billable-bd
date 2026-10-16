@@ -71,6 +71,8 @@ class ProfileSerializer(serializers.ModelSerializer):
             "business_name",
             "business_address",
             "tax_number",
+            "tax_rate_presets",
+            "custom_exchange_rate",
             "logo",
             "logo_url",
             "created_at",

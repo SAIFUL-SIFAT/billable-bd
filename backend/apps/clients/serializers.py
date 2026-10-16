@@ -13,6 +13,7 @@ class ClientSerializer(serializers.ModelSerializer):
     outstanding_by_currency = serializers.SerializerMethodField()
     total_received_bdt = serializers.SerializerMethodField()
     last_invoice_date = serializers.SerializerMethodField()
+    average_days_to_pay = serializers.SerializerMethodField()
 
     class Meta:
         model = Client
@@ -29,8 +30,25 @@ class ClientSerializer(serializers.ModelSerializer):
             'outstanding_by_currency',
             'total_received_bdt',
             'last_invoice_date',
+            'average_days_to_pay',
         ]
-        read_only_fields = ['id', 'created_at', 'outstanding_by_currency', 'total_received_bdt', 'last_invoice_date']
+        read_only_fields = ['id', 'created_at', 'outstanding_by_currency', 'total_received_bdt', 'last_invoice_date', 'average_days_to_pay']
+
+    def get_average_days_to_pay(self, obj: Client) -> float | None:
+        """Calculate the average days elapsed between invoice issue date and final payment date."""
+        from apps.billing.models import Invoice
+        paid_invoices = obj.invoices.filter(status=Invoice.Status.PAID).prefetch_related('payments')# type: ignore[assignment]
+        total_days = 0
+        count = 0
+        for inv in paid_invoices:
+            last_payment = inv.payments.order_by('-paid_on').first()
+            if last_payment and inv.issue_date:
+                days = (last_payment.paid_on - inv.issue_date).days
+                total_days += max(days, 0)
+                count += 1
+        if count > 0:
+            return round(total_days / count, 1)
+        return None
 
     def get_outstanding_by_currency(self, obj: Client) -> list:
         from django.db.models import Sum, F, DecimalField#type: ignore[attr-defined]

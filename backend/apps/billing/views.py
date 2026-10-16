@@ -11,34 +11,33 @@ This executes an SQL JOIN between TimeEntry, Project, and Client tables, guarant
 list endpoints execute in a constant number of queries regardless of database row count (N+1 protection).
 """
 
+import csv
 from decimal import Decimal
 from typing import Any
+
+from django.core.mail import send_mail  # type: ignore[assignment]
 from django.db.models import Sum, Q, F, DecimalField, ExpressionWrapper  # type: ignore[assignment]
+from django.http import HttpResponse, Http404  # type: ignore[assignment]
+from django.shortcuts import get_object_or_404  # type: ignore
 from django_filters import rest_framework as filters  # type: ignore[assignment]
+
 from rest_framework import viewsets, permissions, mixins, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.shortcuts import get_object_or_404  # type: ignore
-from rest_framework.views import APIView
 from rest_framework.throttling import AnonRateThrottle
-from apps.billing.serializers import PublicInvoiceSerializer
-from apps.billing.services import resolve_public_token
-from apps.billing.models import TimeEntry, Invoice, Payment
+from rest_framework.views import APIView
+
+from apps.clients.models import Client
+from apps.core.exceptions import InvoiceStateError, TimeEntryLockedError
+from apps.billing.models import TimeEntry, Invoice, Payment, Expense
 from apps.billing.serializers import (
     TimeEntrySerializer,
     InvoiceSerializer,
     PaymentSerializer,
     InvoiceFromTimeSerializer,
+    PublicInvoiceSerializer,
+    ExpenseSerializer,
 )
-from apps.core.exceptions import InvoiceStateError, TimeEntryLockedError
-from apps.billing.services import (
-    create_invoice_from_time,
-    void_invoice,
-    record_payment,
-    delete_payment,
-    send_invoice,
-)
-from apps.clients.models import Client
 from apps.billing.services import (
     create_invoice_from_time,
     void_invoice,
@@ -47,6 +46,7 @@ from apps.billing.services import (
     send_invoice,
     generate_public_token,
     revoke_public_link,
+    resolve_public_token,
 )
 
 
@@ -106,6 +106,27 @@ class TimeEntryViewSet(viewsets.ModelViewSet):
         if instance.is_billed:
             raise TimeEntryLockedError("Billed time entries are locked and cannot be deleted.")
         instance.delete()
+
+    @action(detail=False, methods=["get"], url_path="export-csv")
+    def export_csv(self, request) -> Response:
+        """Export time entries to CSV with active filters (US-23)."""
+        queryset = self.filter_queryset(self.get_queryset())
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="time_entries.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow(['Date', 'Project', 'Client', 'Hours', 'Description', 'Is Billed'])
+
+        for entry in queryset:
+            writer.writerow([
+                entry.date,
+                entry.project.name,
+                entry.project.client.name,
+                entry.hours,
+                entry.description,
+                entry.is_billed,
+            ])
+        return response# type: ignore[assignment]
 
     @action(detail=False, methods=['get'])
     def totals(self, request) -> Response:
@@ -250,8 +271,63 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @action(detail=True, methods=["post"], url_path="send-reminder")
+    def send_reminder(self, request: Any, pk: Any = None) -> Response:
+        """Send a payment reminder email to the client (US-25)."""
+        invoice = self.get_object()
+        client = invoice.client
+        if not client.email:
+            return Response({"detail": "Client has no email address configured."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        balance_due = max(Decimal("0.00"), invoice.total_amount - invoice.paid_amount)
+        subject = f"Payment Reminder: Invoice {invoice.number or 'Pending'}"
+        message = (
+            f"Dear {client.name},\n\n"
+            f"This is a reminder regarding Invoice {invoice.number or 'Pending'}, issued on {invoice.issue_date}.\n"
+            f"Outstanding Balance: {invoice.currency} {balance_due}\n"
+            f"Due Date: {invoice.due_date}\n\n"
+            f"Please let us know once payment has been remitted.\n\n"
+            f"Best regards,\n"
+            f"{request.user.first_name or request.user.email}"
+        )
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email="billing@billable.test",
+            recipient_list=[client.email],
+            fail_silently=False,
+        )
+        return Response({"detail": f"Reminder email successfully sent to {client.email}."})
 
-class PaymentViewSet(mixins.DestroyModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    @action(detail=False, methods=["get"], url_path="export-csv")
+    def export_csv(self, request: Any) -> Response:
+        """Export invoices to CSV with date filtering (US-23)."""
+        queryset = self.filter_queryset(self.get_queryset())
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="invoices.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow(['Number', 'Client', 'Currency', 'Issue Date', 'Due Date', 'Status', 'Subtotal', 'Tax Amount', 'Total Amount', 'Paid Amount', 'Balance Due'])
+
+        for inv in queryset:
+            balance = max(Decimal("0.00"), inv.total_amount - inv.paid_amount)
+            writer.writerow([
+                inv.number,
+                inv.client.name,
+                inv.currency,
+                inv.issue_date,
+                inv.due_date,
+                inv.status,
+                inv.subtotal,
+                inv.tax_amount,
+                inv.total_amount,
+                inv.paid_amount,
+                balance,
+            ])
+        return response# type: ignore[assignment]
+
+
+class PaymentViewSet(mixins.CreateModelMixin, mixins.DestroyModelMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     """ViewSet for managing individual payments (US-16)."""
 
     serializer_class = PaymentSerializer
@@ -260,9 +336,78 @@ class PaymentViewSet(mixins.DestroyModelMixin, mixins.RetrieveModelMixin, viewse
     def get_queryset(self):
         return Payment.objects.filter(invoice__owner=self.request.user)  # type: ignore[attr-defined]
 
+    def create(self, request, *args, **kwargs):
+        invoice_id = request.data.get('invoice')
+        try:
+            invoice = Invoice.objects.get(id=invoice_id, owner=request.user)
+        except Invoice.DoesNotExist:  # type: ignore[assignment]
+            raise Http404("Invoice not found.")
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payment = record_payment(invoice, serializer.validated_data)  # type: ignore[assignment]
+        return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
+
     def perform_destroy(self, instance: Any) -> None:
         """Delete payment and recompute invoice balance and status."""
         delete_payment(instance)
+
+    @action(detail=False, methods=["get"], url_path="export-csv")
+    def export_csv(self, request: Any) -> Response:
+        """Export payments to CSV (US-23)."""
+        queryset = self.get_queryset()
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="payments.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow(['Invoice Number', 'Client', 'Amount Applied', 'Fee Amount', 'Received BDT', 'Payment Method', 'Paid On', 'Reference'])
+
+        for p in queryset:
+            writer.writerow([
+                p.invoice.number,
+                p.invoice.client.name,
+                p.amount_applied,
+                p.fee_amount,
+                p.received_bdt,
+                p.method,
+                p.paid_on,
+                p.reference,
+            ])
+        return response  # type: ignore[assignment]
+
+
+class ExpenseViewSet(viewsets.ModelViewSet):
+    """ViewSet for logging and managing business expenses (US-24)."""
+
+    serializer_class = ExpenseSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Expense.objects.filter(owner=self.request.user)  # type: ignore[assignment]
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+    @action(detail=False, methods=["get"], url_path="export-csv")
+    def export_csv(self, request: Any) -> Response:
+        """Export expenses to CSV (US-23)."""
+        queryset = self.get_queryset()
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="expenses.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow(['Date', 'Category', 'Description', 'Amount', 'Currency', 'Amount BDT'])
+
+        for exp in queryset:
+            writer.writerow([
+                exp.date,
+                exp.category,
+                exp.description,
+                exp.amount,
+                exp.currency,
+                exp.amount_bdt,
+            ])
+        return response# type: ignore[assignment]
 
 
 class PublicInvoiceView(APIView):

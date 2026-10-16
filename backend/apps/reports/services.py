@@ -341,10 +341,13 @@ def get_dashboard_data(user: Any) -> Dict[str, Any]:
         for row in top_clients_qs
     ]
 
-    # Calculate live estimated total outstanding in BDT using cached rates
+    # Calculate live estimated total outstanding in BDT using user custom rate or cached rates (US-27)
+    profile = getattr(user, "profile", None)
+    user_custom_rate = profile.custom_exchange_rate if profile and profile.custom_exchange_rate else None
+
     rates_data = get_exchange_rates("USD")
     usd_rates = rates_data.get("rates", {})
-    usd_to_bdt = Decimal(str(usd_rates.get("BDT", 122.50)))
+    usd_to_bdt = Decimal(str(user_custom_rate)) if user_custom_rate else Decimal(str(usd_rates.get("BDT", 122.50)))
 
     estimated_bdt_total = Decimal("0.00")
     for item in outstanding_by_currency:
@@ -369,6 +372,7 @@ def get_dashboard_data(user: Any) -> Dict[str, Any]:
         "monthly_income_bdt": monthly_income_bdt,
         "outstanding_by_currency": outstanding_by_currency,
         "estimated_outstanding_bdt": str(quantize_money(estimated_bdt_total)),
+        "user_custom_rate": str(user_custom_rate) if user_custom_rate else None,
         "overdue_by_currency": overdue_by_currency,
         "fees_by_method": fees_by_method,
         "fees_this_month": fees_this_month,
@@ -560,9 +564,28 @@ def get_fiscal_year_report(user: Any, fy: Optional[str] = None) -> Dict[str, Any
             "average_effective_rate": str(avg_rate.quantize(Decimal("0.01"))) if avg_rate else None,
         })
 
+    # Expenses and net profit calculation (US-24)
+    from apps.billing.models import Expense
+    expense_agg = Expense.objects.filter(# type: ignore[assignment]
+        owner=user,
+        date__gte=fy_start,
+        date__lte=fy_end,
+    ).aggregate(
+        total_bdt=Coalesce(
+            Sum("amount_bdt"),
+            Decimal("0.00"),
+            output_field=DecimalField(max_digits=14, decimal_places=2),
+        )
+    )
+    total_expenses_bdt = quantize_money(expense_agg["total_bdt"])
+    gross_received = Decimal(received_bdt)
+    net_profit_bdt = quantize_money(gross_received - total_expenses_bdt)
+
     payload: Dict[str, Any] = {
         "fy": target_fy,
         "received_bdt": received_bdt,
+        "total_expenses_bdt": str(total_expenses_bdt),
+        "net_profit_bdt": str(net_profit_bdt),
         "invoiced_by_currency": invoiced_by_currency,
         "fees_by_currency": fees_by_currency,
         "monthly_received_bdt": monthly_received_bdt,

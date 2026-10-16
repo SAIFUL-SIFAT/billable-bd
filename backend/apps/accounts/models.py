@@ -121,6 +121,12 @@ class Profile(models.Model):
         null=True,
         blank=True,
     )
+    # Tier 2: Tax rate presets (e.g. [0, 5, 15]) and custom BDT exchange rate estimate
+    tax_rate_presets = models.JSONField(default=list, blank=True)
+    custom_exchange_rate = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="User-defined BDT conversion rate override per USD/EUR base"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
