@@ -1,9 +1,11 @@
 import axios from 'axios'
 
 const api = axios.create({
-    baseURL: 'http://127.0.0.1:8000/api',
-    headers: { 'Content-Type': 'application/json' }
+    baseURL: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api',
+    headers: { 'Content-Type': 'application/json' },
+    withCredentials: true,
 })
+
 
 api.interceptors.request.use((config) => {
 
@@ -34,12 +36,18 @@ api.interceptors.response.use(
 
             try {
                 // WARNING: Use axios.post directly (NOT api.post) to prevent recursive interceptor calls
-                const res = await axios.post(`${api.defaults.baseURL}/accounts/refresh/`, {
-                    refresh: refreshToken,
-                });
+                // withCredentials: true allows the browser to send the httpOnly refresh_token cookie
+                const res = await axios.post(
+                    `${api.defaults.baseURL}/accounts/refresh/`,
+                    refreshToken ? { refresh: refreshToken } : {},
+                    { withCredentials: true }
+                );
 
                 const newAccess = res.data.access;
                 localStorage.setItem('access', newAccess);
+                if (res.data.refresh) {
+                    localStorage.setItem('refresh', res.data.refresh);
+                }
                 originalRequest.headers.Authorization = `Bearer ${newAccess}`;
                 return api(originalRequest);
             } catch (refreshErr) {

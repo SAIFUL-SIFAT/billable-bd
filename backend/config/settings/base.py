@@ -101,11 +101,12 @@ WSGI_APPLICATION = "config.wsgi.application"
 DATABASES = {
     "default": env.db("DATABASE_URL")
 }
-# For MySQL 8.0, we want to enforce utf8mb4 in Django too.
-DATABASES["default"]["OPTIONS"] = {
-    "charset": "utf8mb4",
-    "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
-}
+# Only apply MySQL-specific connection parameters if running against a MySQL database.
+if "mysql" in DATABASES["default"].get("ENGINE", ""):
+    DATABASES["default"]["OPTIONS"] = {
+        "charset": "utf8mb4",
+        "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
+    }
 
 
 # Password validation
@@ -208,4 +209,16 @@ STORAGES = {
     },
 }
 
-
+MAILERS = {
+    "default": {
+        "BACKEND": env("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend"),
+        "OPTIONS": {
+            "host": env("EMAIL_HOST", default="smtp.resend.com"),
+            "port": env.int("EMAIL_PORT", default=587),
+            "use_tls": env.bool("EMAIL_USE_TLS", default=True),
+            "username": env("EMAIL_HOST_USER", default="resend"),
+            "password": env("EMAIL_HOST_PASSWORD", default=env("RESEND_API_KEY", default="")),
+        },
+    },
+}
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="onboarding@resend.dev")

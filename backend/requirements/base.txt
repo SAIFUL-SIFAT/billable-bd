@@ -3,6 +3,7 @@ djangorestframework
 djangorestframework-simplejwt
 django-cors-headers
 mysqlclient
+psycopg2-binary>=2.9.9
 django-environ
 django-filter
 
