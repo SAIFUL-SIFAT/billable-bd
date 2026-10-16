@@ -6,5 +6,6 @@ mysqlclient
 psycopg2-binary>=2.9.9
 django-environ
 django-filter
+Pillow>=10.0.0
 
 
