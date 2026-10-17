@@ -16,8 +16,10 @@ Automated Checkpoints Enforced:
 """
 
 import threading
+import unittest
 from datetime import date 
 from django.contrib.auth import get_user_model # type: ignore[assignment]
+from django.db import connection
 from rest_framework.test import APITestCase
 from django.test import TransactionTestCase# type: ignore[assignment]
 from rest_framework import status
@@ -556,6 +558,10 @@ class InvoiceConcurrencyTests(TransactionTestCase):
             default_currency="USD",
         )
 
+    @unittest.skipIf(
+        connection.vendor == "sqlite",
+        "SQLite does not support concurrent multi-threaded row-level transactions (database table is locked)."
+    )
     def test_concurrent_send_invoice_never_duplicates_number(self):
         """Simultaneous threads calling send_invoice on distinct drafts acquire select_for_update() locks sequentially."""
         inv1 = Invoice.objects.create(
