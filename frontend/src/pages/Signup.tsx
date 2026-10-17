@@ -11,15 +11,25 @@ const schema = z.object({
     first_name: z.string().min(1, 'First name is required'),
     last_name: z.string().min(1, 'Last name is required'),
     email: z.string().email('Invalid email address'),
-    password: z.string().min(8, 'Password must be at least 8 characters'),
+    password: z
+        .string()
+        .min(8, 'Password must be at least 8 characters')
+        .regex(/[A-Za-z]/, 'Must include at least one letter')
+        .regex(/[0-9]/, 'Must include at least one number')
+        .refine(
+            (val) => !/^(password|12345678|qwerty|admin)/i.test(val),
+            'Password is too common or easily guessable'
+        ),
 });
 
 type FormData = z.infer<typeof schema>;
 
 export const Signup: React.FC = () => {
-    const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({ 
-        resolver: zodResolver(schema) 
+    const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<FormData>({ 
+        resolver: zodResolver(schema),
+        mode: 'onChange',
     });
+    const passwordValue = watch('password', '');
     const { login } = useAuth();
     const navigate = useNavigate();
     const [serverError, setServerError] = useState<string | null>(null);
@@ -147,16 +157,36 @@ export const Signup: React.FC = () => {
                                 <input
                                     type="password"
                                     {...register('password')}
-                                    placeholder="At least 8 characters"
+                                    placeholder="Create a strong password"
                                     className="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
                                 />
                             </div>
+
+                            {/* Live Password Requirements Checklist */}
+                            {passwordValue && (
+                                <div className="mt-2.5 p-2.5 bg-slate-50 rounded-xl border border-slate-100 space-y-1 text-[11px]">
+                                    <div className={`flex items-center gap-1.5 ${passwordValue.length >= 8 ? 'text-emerald-600 font-semibold' : 'text-slate-400'}`}>
+                                        <span>{passwordValue.length >= 8 ? '✓' : '○'}</span>
+                                        <span>At least 8 characters long</span>
+                                    </div>
+                                    <div className={`flex items-center gap-1.5 ${/[A-Za-z]/.test(passwordValue) ? 'text-emerald-600 font-semibold' : 'text-slate-400'}`}>
+                                        <span>{/[A-Za-z]/.test(passwordValue) ? '✓' : '○'}</span>
+                                        <span>Contains at least one letter</span>
+                                    </div>
+                                    <div className={`flex items-center gap-1.5 ${/[0-9]/.test(passwordValue) ? 'text-emerald-600 font-semibold' : 'text-slate-400'}`}>
+                                        <span>{/[0-9]/.test(passwordValue) ? '✓' : '○'}</span>
+                                        <span>Contains at least one number</span>
+                                    </div>
+                                </div>
+                            )}
+
                             {errors.password && (
                                 <span className="text-red-500 text-xs mt-1.5 block font-medium">
                                     {errors.password.message}
                                 </span>
                             )}
                         </div>
+
 
                         <button
                             type="submit"

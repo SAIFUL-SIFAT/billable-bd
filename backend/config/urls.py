@@ -19,7 +19,15 @@ from django.urls import path  # type: ignore[assignment]
 from django.urls import include  # type: ignore[assignment]
 from django.conf import settings# type: ignore[assignment]
 from django.conf.urls.static import static# type: ignore[assignment]
+from django.http import JsonResponse# type: ignore[assignment]
+
+def health_check(request):
+    """Lightweight healthcheck endpoint for uptime monitors and keep-alive crons."""
+    return JsonResponse({"status": "ok"})
+
 urlpatterns = [
+    path("health/", health_check, name="health-check"),
+    path("api/health/", health_check, name="api-health-check"),
     path("admin/", admin.site.urls),
     path("api/accounts/", include("apps.accounts.urls")),
     path("api/", include("apps.clients.urls")),
@@ -27,6 +35,7 @@ urlpatterns = [
     path("api/", include("apps.reports.urls")),
     path("api/", include("apps.notifications.urls")),
 ]
+
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

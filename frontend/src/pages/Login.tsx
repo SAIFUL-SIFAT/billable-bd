@@ -14,7 +14,10 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export const Login: React.FC = () => {
-    const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({ resolver: zodResolver(schema) });
+    const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({ 
+        resolver: zodResolver(schema),
+        mode: 'onChange',
+    });
     const { login } = useAuth();
     const navigate = useNavigate();
 
