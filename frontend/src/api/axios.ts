@@ -1,10 +1,16 @@
 import axios from 'axios'
 
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+// Normalize: ensure it ends with /api (without duplicate slashes)
+const cleanBaseUrl = rawBaseUrl.replace(/\/+$/, '');
+const normalizedBaseUrl = cleanBaseUrl.endsWith('/api') ? cleanBaseUrl : `${cleanBaseUrl}/api`;
+
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api',
+    baseURL: normalizedBaseUrl,
     headers: { 'Content-Type': 'application/json' },
     withCredentials: true,
 })
+
 
 
 api.interceptors.request.use((config) => {
