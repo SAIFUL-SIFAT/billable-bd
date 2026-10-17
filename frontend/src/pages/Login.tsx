@@ -2,8 +2,8 @@ import React from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useNavigate } from 'react-router-dom';
-import { Lock, Mail, ArrowRight, ShieldCheck } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { Lock, Mail, ArrowRight } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 
@@ -33,9 +33,11 @@ export const Login: React.FC = () => {
             <div className="w-full max-w-md">
                 <div className="bg-white/80 backdrop-blur-md rounded-2xl border border-slate-200/80 shadow-xl shadow-slate-100/50 p-8 sm:p-10 transition-all">
                     <div className="flex flex-col items-center text-center mb-8">
-                        <div className="w-12 h-12 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-center text-amber-600 mb-4 shadow-sm">
-                            <ShieldCheck className="w-6 h-6" />
-                        </div>
+                        <img
+                            src="/favicon.svg"
+                            alt="Billable BD Logo"
+                            className="w-12 h-12 rounded-xl shadow-md mb-4 object-contain"
+                        />
                         <h2 className="text-2xl font-bold tracking-tight text-slate-900">Welcome Back</h2>
                         <p className="text-sm text-slate-500 mt-1.5">Sign in to your Billable BD portal</p>
                     </div>
@@ -94,6 +96,13 @@ export const Login: React.FC = () => {
                             <ArrowRight className="w-4 h-4" />
                         </button>
                     </form>
+
+                    <div className="mt-6 text-center text-xs text-slate-500">
+                        Don't have an account?{' '}
+                        <Link to="/signup" className="font-semibold text-amber-600 hover:text-amber-700 transition">
+                            Create an account
+                        </Link>
+                    </div>
                 </div>
             </div>
         </div>

@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Login } from './pages/Login';
+import { Signup } from './pages/Signup';
 import { ClientsPage } from './pages/ClientsPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { TimeEntriesPage } from './pages/TimeEntriesPage';
@@ -18,6 +19,7 @@ import { PublicInvoicePage } from './pages/PublicInvoicePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { NotificationBell } from './components/NotificationBell';
 import { ThemeToggle } from './components/ThemeToggle';
+import { MobileDrawer } from './components/MobileDrawer';
 import { ThemeProvider } from './context/ThemeContext';
 import {
   LayoutDashboard,
@@ -58,7 +60,8 @@ const NavigationHeader = () => {
   };
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
+    <>
+      <header className="sticky top-0 z-40 w-full border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between h-16 items-center">
         {/* Logo and Brand */}
         <div className="flex items-center space-x-8">
@@ -103,8 +106,8 @@ const NavigationHeader = () => {
           {/* Notification Bell Dropdown */}
           <NotificationBell />
 
-          {/* Avatar Menu */}
-          <div className="relative">
+          {/* Avatar Menu (Desktop Only) */}
+          <div className="relative hidden md:block">
             <button
               type="button"
               onClick={() => setShowAvatarMenu(!showAvatarMenu)}
@@ -192,74 +195,17 @@ const NavigationHeader = () => {
         </div>
       </div>
 
-      {/* Mobile Drawer Navigation */}
-      {mobileDrawerOpen && (
-        <div className="md:hidden border-t border-slate-200 bg-white px-4 pt-3 pb-4 space-y-2">
-          {/* Mobile User Profile Header */}
-          <div className="flex items-center gap-2.5 pb-2.5 mb-2 border-b border-slate-100">
-            {user.logo_url ? (
-              <img
-                src={user.logo_url}
-                alt="Business Logo"
-                className="w-8 h-8 rounded-full object-cover border border-slate-200"
-              />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                {user.email.charAt(0).toUpperCase()}
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="text-xs font-bold text-slate-900 truncate">{user.email}</div>
-              <div className="text-[11px] text-slate-500">Freelancer Account</div>
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            {navLinks.map((link) => {
-              const active = isActivePath(link.to);
-              const Icon = link.icon;
-              return (
-                <Link
-                  key={link.to}
-                  to={link.to}
-                  onClick={() => setMobileDrawerOpen(false)}
-                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition ${active ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'
-                    }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  <span>{link.label}</span>
-                </Link>
-              );
-            })}
-          </div>
-
-          {/* Mobile Settings & Logout */}
-          <div className="pt-2 border-t border-slate-100 space-y-1">
-            <Link
-              to="/settings"
-              onClick={() => setMobileDrawerOpen(false)}
-              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100"
-            >
-              <Settings className="w-4 h-4 text-slate-400" />
-              <span>Settings & Branding</span>
-            </Link>
-            <button
-              type="button"
-              onClick={() => {
-                setMobileDrawerOpen(false);
-                logout();
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 text-left"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>Logout</span>
-            </button>
-          </div>
-        </div>
-      )}
     </header>
+    <MobileDrawer
+      isOpen={mobileDrawerOpen}
+      onClose={() => setMobileDrawerOpen(false)}
+      user={user}
+      logout={logout}
+    />
+    </>
   );
 };
+
 
 function App() {
   return (
@@ -269,9 +215,11 @@ function App() {
           <Router>
           <div className="min-h-screen bg-slate-50/50 flex flex-col antialiased text-slate-900">
             <NavigationHeader />
+
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
               <Routes>
                 <Route path="/login" element={<Login />} />
+                <Route path="/signup" element={<Signup />} />
                 <Route path="/public/invoices/:token" element={<PublicInvoicePage />} />
                 <Route
                   path="/"

@@ -185,7 +185,7 @@ export const InvoicesPage: React.FC = () => {
                         Manage draft billing, track receivables in client currencies, and record payments.
                     </p>
                 </div>
-                <div className="flex items-center space-x-3">
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                     <button
                         type="button"
                         onClick={async () => {
@@ -202,27 +202,28 @@ export const InvoicesPage: React.FC = () => {
                                 console.error('Failed to export invoices CSV', err);
                             }
                         }}
-                        className="inline-flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-3.5 py-2.5 rounded-xl text-sm font-semibold shadow-sm transition-all"
+                        className="inline-flex flex-1 sm:flex-initial items-center justify-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold shadow-xs transition-all"
                     >
-                        <Download className="w-4 h-4 text-slate-500" />
+                        <Download className="w-3.5 h-3.5 text-slate-500" />
                         <span>Export CSV</span>
                     </button>
                     <Link
                         to="/invoices/from-time"
-                        className="inline-flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm transition-all"
+                        className="inline-flex flex-1 sm:flex-initial items-center justify-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold shadow-xs transition-all text-center"
                     >
-                        <Clock className="w-4 h-4 text-slate-500" />
-                        <span>From Unbilled Time</span>
+                        <Clock className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Unbilled Time</span>
                     </Link>
                     <Link
                         to="/invoices/new"
-                        className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm hover:shadow transition-all active:scale-[0.99]"
+                        className="inline-flex w-full sm:w-auto items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold shadow-xs hover:shadow transition-all active:scale-[0.99]"
                     >
                         <Plus className="w-4 h-4" />
                         <span>New Invoice</span>
                     </Link>
                 </div>
             </div>
+
 
             {/* Compact Status Tabs */}
             <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 border-b border-slate-200">
