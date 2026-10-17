@@ -14,6 +14,7 @@ export interface Client {
     outstanding_by_currency?: { currency: string; amount: string }[];
     total_received_bdt?: string;
     last_invoice_date?: string | null;
+    average_days_to_pay?: number | null;
 }
 
 export interface Project {

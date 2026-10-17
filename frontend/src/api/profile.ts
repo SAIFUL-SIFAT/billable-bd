@@ -5,6 +5,8 @@ export interface ProfileData {
     business_name: string;
     business_address: string;
     tax_number: string;
+    tax_rate_presets: number[];
+    custom_exchange_rate: string | null;
     logo: string | null;
     logo_url: string | null;
     created_at: string;
@@ -15,6 +17,8 @@ export interface ProfileUpdatePayload {
     business_name?: string;
     business_address?: string;
     tax_number?: string;
+    tax_rate_presets?: number[];
+    custom_exchange_rate?: string | null;
 }
 
 export const profileApi = {

@@ -183,10 +183,17 @@ export const DashboardPage: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Card 2: Unpaid Invoices (Stacked per-currency amounts) */}
+                {/* Card 2: Unpaid Invoices (Stacked per-currency amounts + BDT-equivalent estimate) */}
                 <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between h-44">
                     <div>
-                        <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Unpaid Invoices</div>
+                        <div className="flex items-center justify-between">
+                            <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Unpaid Invoices</div>
+                            {data.estimated_outstanding_bdt && (
+                                <div className="text-[11px] font-mono font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                    ≈ ৳{Number(data.estimated_outstanding_bdt).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                                </div>
+                            )}
+                        </div>
                         <div className="mt-2 space-y-1 overflow-y-auto max-h-16 pr-1">
                             {data.outstanding_by_currency.length === 0 ? (
                                 <div className="text-sm font-semibold text-slate-500">No unpaid balances</div>
@@ -204,8 +211,10 @@ export const DashboardPage: React.FC = () => {
                         </div>
                     </div>
                     <div className="text-xs text-slate-500 pt-3 border-t border-slate-100 flex items-center justify-between">
-                        <span>Status:</span>
-                        <span className="font-semibold text-slate-700">Awaiting client payment</span>
+                        <span>Rate basis:</span>
+                        <span className="font-semibold text-slate-700">
+                            {data.user_custom_rate ? `Custom rate (৳${data.user_custom_rate})` : 'Live market rate'}
+                        </span>
                     </div>
                 </div>
 

@@ -93,22 +93,53 @@ export const FiscalYearReportPage: React.FC = () => {
                 </div>
             ) : report ? (
                 <div className="space-y-6">
-                    {/* Main KPI Card: Realized Income in BDT */}
-                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-7 text-white shadow-xl relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
-                        <div className="relative">
+                    {/* KPI Cards: Realized Revenue, Expenses, and Net Profit (US-24) */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden">
                             <div className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                                Total Realized Income ({report.fy})
+                                Total Realized Income
                             </div>
                             <div className="mt-2">
                                 <Money 
                                     amount={report.received_bdt} 
                                     currency="BDT" 
-                                    numberClassName="text-3xl sm:text-4xl font-extrabold text-white" 
+                                    numberClassName="text-2xl sm:text-3xl font-extrabold text-white" 
                                 />
                             </div>
-                            <p className="text-xs text-slate-400 mt-2 max-w-xl">
-                                Cumulative net remittances credited in Bangladeshi Taka between July 1, {report.fy.slice(0, 4)} and June 30, 20{report.fy.slice(5)}.
+                            <p className="text-[11px] text-slate-400 mt-2">
+                                Gross remittances credited in BDT.
+                            </p>
+                        </div>
+
+                        <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs">
+                            <div className="text-xs font-bold uppercase tracking-wider text-rose-600">
+                                Total Business Expenses
+                            </div>
+                            <div className="mt-2">
+                                <Money 
+                                    amount={report.total_expenses_bdt || '0.00'} 
+                                    currency="BDT" 
+                                    numberClassName="text-2xl sm:text-3xl font-extrabold text-rose-700" 
+                                />
+                            </div>
+                            <p className="text-[11px] text-slate-500 mt-2">
+                                Operating tools, subscriptions & fees.
+                            </p>
+                        </div>
+
+                        <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs">
+                            <div className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                                Net Realized Profit
+                            </div>
+                            <div className="mt-2">
+                                <Money 
+                                    amount={report.net_profit_bdt || report.received_bdt} 
+                                    currency="BDT" 
+                                    numberClassName="text-2xl sm:text-3xl font-extrabold text-emerald-600" 
+                                />
+                            </div>
+                            <p className="text-[11px] text-slate-500 mt-2">
+                                Income after deducting recorded expenses.
                             </p>
                         </div>
                     </div>

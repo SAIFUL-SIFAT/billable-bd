@@ -11,7 +11,8 @@ import {
     Trash2, 
     Lock, 
     Calendar, 
-    ArrowRight
+    ArrowRight,
+    Download
 } from 'lucide-react';
 
 export const TimeEntriesPage: React.FC = () => {
@@ -180,15 +181,41 @@ export const TimeEntriesPage: React.FC = () => {
                         )}
                     </div>
 
-                    {totals.unbilled_hours > 0 && (
-                        <Link
-                            to="/invoices/from-time"
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-semibold transition whitespace-nowrap active:scale-[0.99]"
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                try {
+                                    const params: Record<string, any> = {};
+                                    if (filterProject) params.project = filterProject;
+                                    if (filterBilled) params.is_billed = filterBilled;
+                                    const blob = await billingApi.exportCsv(params);
+                                    const url = window.URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = 'time_entries.csv';
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    a.remove();
+                                } catch (err) {
+                                    console.error('Failed to export time entries CSV', err);
+                                }
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl font-semibold transition"
                         >
-                            <span>Create invoice from unbilled time</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                        </Link>
-                    )}
+                            <Download className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Export CSV</span>
+                        </button>
+                        {totals.unbilled_hours > 0 && (
+                            <Link
+                                to="/invoices/from-time"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-semibold transition whitespace-nowrap active:scale-[0.99]"
+                            >
+                                <span>Create invoice from unbilled time</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                            </Link>
+                        )}
+                    </div>
                 </div>
             </div>
 

@@ -48,10 +48,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         localStorage.setItem('refresh', refresh);
         await fetchUser();
     };
-    const logout = () => {
-        localStorage.removeItem('access');
-        localStorage.removeItem('refresh');
-        setUser(null);
+    const logout = async () => {
+        try {
+            await api.post('/accounts/logout/', {});
+        } catch {
+            // Ignore failure on logout
+        } finally {
+            localStorage.removeItem('access');
+            localStorage.removeItem('refresh');
+            setUser(null);
+        }
     };
 
     return (

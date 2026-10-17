@@ -199,6 +199,13 @@ export const ClientsPage: React.FC = () => {
                                     </div>
 
                                     <div className="flex items-center justify-between pt-1 text-[11px] text-slate-500 border-t border-slate-100">
+                                        <span>Avg. Days to Pay:</span>
+                                        <span className="font-semibold text-slate-700">
+                                            {c.average_days_to_pay !== undefined && c.average_days_to_pay !== null ? `${c.average_days_to_pay} days` : 'N/A'}
+                                        </span>
+                                    </div>
+
+                                    <div className="flex items-center justify-between text-[11px] text-slate-500">
                                         <span>Last Invoiced:</span>
                                         <span className="font-semibold text-slate-700">
                                             {c.last_invoice_date ? formatDate(c.last_invoice_date) : 'Never'}

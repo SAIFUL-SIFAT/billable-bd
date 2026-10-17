@@ -30,6 +30,8 @@ export const SettingsPage: React.FC = () => {
     const [businessName, setBusinessName] = useState('');
     const [businessAddress, setBusinessAddress] = useState('');
     const [taxNumber, setTaxNumber] = useState('');
+    const [taxPresetsInput, setTaxPresetsInput] = useState('');
+    const [customRate, setCustomRate] = useState('');
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     const fetchProfile = async () => {
@@ -41,6 +43,8 @@ export const SettingsPage: React.FC = () => {
             setBusinessName(data.business_name || '');
             setBusinessAddress(data.business_address || '');
             setTaxNumber(data.tax_number || '');
+            setTaxPresetsInput((data.tax_rate_presets || [0, 5, 10, 15]).join(', '));
+            setCustomRate(data.custom_exchange_rate || '');
         } catch (err) {
             const msg = getApiErrorMessage(err);
             setErrorMsg(msg);
@@ -59,13 +63,21 @@ export const SettingsPage: React.FC = () => {
         try {
             setSaving(true);
             setErrorMsg(null);
+
+            const parsedPresets = taxPresetsInput
+                .split(',')
+                .map((s) => parseFloat(s.trim()))
+                .filter((n) => !isNaN(n) && n >= 0);
+
             const updated = await profileApi.updateProfile({
                 business_name: businessName,
                 business_address: businessAddress,
                 tax_number: taxNumber,
+                tax_rate_presets: parsedPresets,
+                custom_exchange_rate: customRate.trim() ? customRate.trim() : null,
             });
             setProfile(updated);
-            toast.success('Business settings saved successfully.');
+            toast.success('Business settings and tax/rate presets saved.');
         } catch (err) {
             const msg = getApiErrorMessage(err);
             setErrorMsg(msg);
@@ -286,6 +298,42 @@ export const SettingsPage: React.FC = () => {
                             />
                             <p className="text-[11px] text-slate-400">
                                 Optional tax registration number printed on formal invoice receipts.
+                            </p>
+                        </div>
+
+                        {/* Tax Rate Presets (US-26) */}
+                        <div className="space-y-1.5">
+                            <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                                <span>Tax Rate Presets (%)</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={taxPresetsInput}
+                                onChange={(e) => setTaxPresetsInput(e.target.value)}
+                                placeholder="e.g. 0, 5, 10, 15"
+                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-sm focus:outline-hidden focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 transition font-mono"
+                            />
+                            <p className="text-[11px] text-slate-400">
+                                Comma-separated percentages (e.g. 0, 5, 15) available as one-click chips during invoice drafting.
+                            </p>
+                        </div>
+
+                        {/* Custom BDT Exchange Rate Override (US-27) */}
+                        <div className="space-y-1.5">
+                            <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                                <span>Custom BDT Exchange Rate Override (৳ per USD)</span>
+                            </label>
+                            <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={customRate}
+                                onChange={(e) => setCustomRate(e.target.value)}
+                                placeholder="e.g. 125.00 (leave blank to use live market rate)"
+                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-sm focus:outline-hidden focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 transition font-mono"
+                            />
+                            <p className="text-[11px] text-slate-400">
+                                Override live conversion rates to estimate pending receivables in BDT at your target payout rate.
                             </p>
                         </div>
 

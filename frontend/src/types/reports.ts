@@ -51,6 +51,7 @@ export interface DashboardData {
     monthly_income_bdt: MonthlyIncomePoint[];
     outstanding_by_currency: CurrencyAmount[];
     estimated_outstanding_bdt?: string;
+    user_custom_rate?: string | null;
     overdue_by_currency: CurrencyAmount[];
     fees_by_method: FeeByMethod[];
     fees_this_month?: FeeThisMonth[];
@@ -80,6 +81,8 @@ export interface EffectiveRateSummary {
 export interface FiscalYearReportData {
     fy: string;
     received_bdt: string;
+    total_expenses_bdt?: string;
+    net_profit_bdt?: string;
     invoiced_by_currency: InvoicedCurrencyAmount[];
     fees_by_currency: InvoicedCurrencyAmount[];
     monthly_received_bdt?: MonthlyBdtBreakdown[];

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatMoney, formatMoneyNumber, calculateEffectiveRate } from './formatters';
+import { formatMoney, formatMoneyNumber, calculateEffectiveRate } from '../utils/formatters';
 
 describe('formatMoney and formatMoneyNumber', () => {
     it('formats BDT with Bangladeshi lakh/crore digit grouping', () => {

@@ -13,9 +13,12 @@ import { InvoiceFromTimePage } from './pages/InvoiceFromTimePage';
 import { InvoiceDetailPage } from './pages/InvoiceDetailPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { FiscalYearReportPage } from './pages/FiscalYearReportPage';
+import { ExpensesPage } from './pages/ExpensesPage';
 import { PublicInvoicePage } from './pages/PublicInvoicePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { NotificationBell } from './components/NotificationBell';
+import { ThemeToggle } from './components/ThemeToggle';
+import { ThemeProvider } from './context/ThemeContext';
 import {
   LayoutDashboard,
   Users,
@@ -23,6 +26,7 @@ import {
   Clock,
   FileText,
   BarChart3,
+  CreditCard,
   LogOut,
   Menu,
   X,
@@ -44,6 +48,7 @@ const NavigationHeader = () => {
     { to: '/projects', label: 'Projects', icon: FolderKanban },
     { to: '/time-entries', label: 'Time Entries', icon: Clock },
     { to: '/invoices', label: 'Invoices', icon: FileText },
+    { to: '/expenses', label: 'Expenses', icon: CreditCard },
     { to: '/reports/fiscal-year', label: 'Reports', icon: BarChart3 },
   ];
 
@@ -90,8 +95,11 @@ const NavigationHeader = () => {
           </nav>
         </div>
 
-        {/* Right Header: Notification Bell, Avatar Menu, Mobile Drawer Toggle */}
-        <div className="flex items-center space-x-3">
+        {/* Right Header: ThemeToggle, Notification Bell, Avatar Menu, Mobile Drawer Toggle */}
+        <div className="flex items-center space-x-2 sm:space-x-3">
+          {/* Theme Toggle (US-29) */}
+          <ThemeToggle />
+
           {/* Notification Bell Dropdown */}
           <NotificationBell />
 
@@ -256,8 +264,9 @@ const NavigationHeader = () => {
 function App() {
   return (
     <AuthProvider>
-      <ToastProvider>
-        <Router>
+      <ThemeProvider>
+        <ToastProvider>
+          <Router>
           <div className="min-h-screen bg-slate-50/50 flex flex-col antialiased text-slate-900">
             <NavigationHeader />
             <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
@@ -345,6 +354,14 @@ function App() {
                   }
                 />
                 <Route
+                  path="/expenses"
+                  element={
+                    <ProtectedRoute>
+                      <ExpensesPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
                   path="/settings"
                   element={
                     <ProtectedRoute>
@@ -357,6 +374,7 @@ function App() {
           </div>
         </Router>
       </ToastProvider>
+    </ThemeProvider>
     </AuthProvider>
   );
 }
